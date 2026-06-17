@@ -80,7 +80,8 @@ p { color: var(--muted); margin: 8px 0 0; }
 .custom-size { display: none; gap: 8px; grid-template-columns: 92px 92px; }
 .custom-size.visible { display: grid; }
 .canvas-wrap { position: relative; border-radius: 24px; overflow: hidden; background: #02030a; border: 1px solid rgba(255,255,255,.12); display: grid; place-items: center; min-height: 260px; }
-canvas { display: block; width: 100%; height: auto; max-height: 68vh; background: #02030a; }
+canvas { display: block; width: 100%; height: auto; max-height: 68vh; background: #02030a; cursor: grab; touch-action: none; }
+canvas.dragging { cursor: grabbing; }
 .empty-state { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted-2); background: rgba(0,0,0,.18); }
 .transport { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
 .progress-shell { flex: 1; height: 10px; border-radius: 999px; overflow: hidden; background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.08); }
@@ -268,6 +269,25 @@ canvas { display: block; width: 100%; height: auto; max-height: 68vh; background
 }
 
 /* v10: visible local AI tools */
+.position-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 12px 0 10px;
+  padding: 10px;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 16px;
+  background: rgba(255,255,255,.035);
+}
+.position-toggle { display: flex; gap: 8px; flex-wrap: wrap; }
+.position-toggle .ghost.active {
+  background: linear-gradient(135deg, var(--mint), var(--blue));
+  color: #071018;
+  border-color: transparent;
+}
+#previewEditHint { color: var(--muted); font-size: 12px; line-height: 1.35; text-align: right; }
+
 .ai-tools {
   margin: 0 0 14px;
   padding: 13px;

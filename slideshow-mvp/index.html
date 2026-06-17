@@ -170,12 +170,20 @@
             <button class="secondary" id="softZoomBtn" type="button">Мягкий зум</button>
           </div>
 
+          <div class="position-tools">
+            <div class="position-toggle" aria-label="Редактируемая точка кадра">
+              <button id="positionStartBtn" class="ghost active" type="button">Начало кадра</button>
+              <button id="positionEndBtn" class="ghost" type="button">Конец кадра</button>
+            </div>
+            <span id="previewEditHint">Колесо над превью = зум, зажатая мышь = позиция.</span>
+          </div>
+
           <div class="controls-grid">
             <label>Сдвиг по X <span id="panXValue">0</span>
-              <input id="panX" type="range" min="-200" max="200" value="0" />
+              <input id="panX" type="range" min="-300" max="300" value="0" />
             </label>
             <label>Сдвиг по Y <span id="panYValue">0</span>
-              <input id="panY" type="range" min="-200" max="200" value="0" />
+              <input id="panY" type="range" min="-300" max="300" value="0" />
             </label>
             <label>Зум в начале <span id="zoomStartValue">1.00×</span>
               <input id="zoomStart" type="range" min="0.25" max="4" step="0.01" value="1" />
@@ -329,8 +337,12 @@ def draw_image_frame(img, slide, frame_index, frame_count, out_w, out_h, pil_mod
     draw_h = max(1, int(round(base_h * zoom)))
     resized = img.resize((draw_w, draw_h), resample=1)
 
-    pan_x = parse_float(slide.get("panX"), 0.0)
-    pan_y = parse_float(slide.get("panY"), 0.0)
+    pan_start_x = parse_float(slide.get("panStartX", slide.get("panX")), 0.0)
+    pan_start_y = parse_float(slide.get("panStartY", slide.get("panY")), 0.0)
+    pan_end_x = parse_float(slide.get("panEndX", slide.get("panX")), pan_start_x)
+    pan_end_y = parse_float(slide.get("panEndY", slide.get("panY")), pan_start_y)
+    pan_x = lerp(pan_start_x, pan_end_x, p)
+    pan_y = lerp(pan_start_y, pan_end_y, p)
     free_x = max(0, abs(draw_w - out_w) / 2)
     free_y = max(0, abs(draw_h - out_h) / 2)
     dx = int(round((out_w - draw_w) / 2 + (pan_x / 100.0) * free_x))
