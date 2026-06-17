@@ -133,3 +133,22 @@ canvas { display: block; width: 100%; height: auto; max-height: 68vh; background
   .slide-actions { grid-column: 3; }
   .timeline-actions { justify-content: flex-start; }
 }
+.compact-hint { margin-top: 4px; font-size: 11px; }
+
+/* v5: left list starts at preview level + per-slide scrubber */
+.media-panel { position: sticky; top: 18px; }
+.top-timeline-header { margin-top: 0; }
+.upload-block { margin: 18px 0 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.upload-block h3 { color: var(--muted); }
+.slide-list { max-height: 56vh; }
+.clip-scrubber { margin-top: 14px; padding: 13px; border: 1px solid var(--line); border-radius: 18px; background: rgba(255,255,255,.045); display: grid; gap: 10px; }
+.clip-scrubber-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.clip-scrubber-head strong { font-size: 13px; }
+.clip-scrubber-head span { color: var(--muted); font-size: 12px; text-align: right; }
+.clip-scrubber input[type="range"] { width: 100%; accent-color: var(--brand); }
+.clip-scrubber-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.clip-scrubber-actions .ghost { padding: 8px 10px; font-size: 12px; }
+@media (max-width: 1050px) {
+  .media-panel { position: static; }
+  .slide-list { max-height: 48vh; }
+}

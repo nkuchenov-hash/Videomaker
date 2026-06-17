@@ -24,9 +24,27 @@
       <section class="panel media-panel">
         <div class="panel-header">
           <div>
-            <h2>1. Загрузка</h2>
-            <p>Добавь фото, видео и музыку. Порядок можно менять стрелками или перетаскиванием. Теперь можно выделять несколько кадров и удалять пачкой.</p>
+            <h2>1. Кадры и загрузка</h2>
+            <p>Список кадров теперь сразу слева на одном уровне с предпросмотром. При просмотре переключай кадры стрелками ↑/↓ или ←/→. Shift+клик по чекбоксу/кадру выделяет пачку файлов.</p>
           </div>
+        </div>
+
+        <div class="timeline-header top-timeline-header">
+          <div>
+            <h3>Порядок кадров</h3>
+            <span id="selectedCount" class="selected-count">Ничего не выбрано</span>
+            <p class="hint compact-hint">Shift+клик — выделить диапазон. Shift+↑/↓ — расширить выделение с клавиатуры.</p>
+          </div>
+          <div class="timeline-actions">
+            <button class="ghost" id="selectAllBtn" type="button">Выбрать все</button>
+            <button class="ghost danger" id="deleteSelectedBtn" type="button" disabled>Удалить выбранные</button>
+            <button class="ghost" id="clearBtn" type="button">Очистить всё</button>
+          </div>
+        </div>
+        <div class="slide-list" id="slideList"></div>
+
+        <div class="upload-block">
+          <h3>Добавить файлы</h3>
         </div>
 
         <label class="dropzone" id="dropzone">
@@ -57,18 +75,6 @@
         <button class="secondary full" id="fitToMusicBtn" type="button">Подогнать фото под длину музыки</button>
         <p class="hint">Видео сохраняют свою длительность. Оставшееся время музыки распределяется между фото.</p>
 
-        <div class="timeline-header">
-          <div>
-            <h3>Порядок кадров</h3>
-            <span id="selectedCount" class="selected-count">Ничего не выбрано</span>
-          </div>
-          <div class="timeline-actions">
-            <button class="ghost" id="selectAllBtn" type="button">Выбрать все</button>
-            <button class="ghost danger" id="deleteSelectedBtn" type="button" disabled>Удалить выбранные</button>
-            <button class="ghost" id="clearBtn" type="button">Очистить всё</button>
-          </div>
-        </div>
-        <div class="slide-list" id="slideList"></div>
       </section>
 
       <section class="preview-column">
@@ -117,13 +123,26 @@
             <div class="progress-shell"><div id="previewProgress"></div></div>
             <span id="timeLabel">00:00 / 00:00</span>
           </div>
+
+          <div class="clip-scrubber" id="clipScrubberBox">
+            <div class="clip-scrubber-head">
+              <strong>Проверка выбранного кадра</strong>
+              <span id="clipScrubLabel">—</span>
+            </div>
+            <input id="clipScrub" type="range" min="0" max="1000" step="1" value="0" />
+            <div class="clip-scrubber-actions">
+              <button class="ghost" id="clipStartBtn" type="button">Начало кадра</button>
+              <button class="ghost" id="clipMiddleBtn" type="button">Середина</button>
+              <button class="ghost" id="clipEndBtn" type="button">Конец кадра</button>
+            </div>
+          </div>
         </section>
 
         <section class="panel edit-panel">
           <div class="panel-header horizontal">
             <div>
               <h2>3. Кадрирование и зум</h2>
-              <p>Можно отдалять до 0.25×, чтобы влезал весь контент, или приближать для кинематографичного движения.</p>
+              <p>Можно отдалять до 0.25×, чтобы влезал весь контент, или приближать для кинематографичного движения. Для проверки начала/конца выбранного кадра используй ползунок под предпросмотром.</p>
             </div>
             <button class="ghost" id="resetSlideBtn" type="button">Сбросить кадр</button>
           </div>

@@ -2,6 +2,7 @@ const state = {
   slides: [],
   selectedIndex: -1,
   selectedIds: new Set(),
+  lastSelectionAnchor: -1,
   audioFile: null,
   audioUrl: null,
   audioDuration: 0,
@@ -27,6 +28,8 @@ const els = {
   exportProgress: $('exportProgress'), exportStatusText: $('exportStatusText'), audioPreview: $('audioPreview'),
   selectedCount: $('selectedCount'), selectAllBtn: $('selectAllBtn'), deleteSelectedBtn: $('deleteSelectedBtn'),
   saveProjectBtn: $('saveProjectBtn'), loadProjectBtn: $('loadProjectBtn'), deleteSavedProjectBtn: $('deleteSavedProjectBtn'), projectStatus: $('projectStatus'),
+  clipScrubberBox: $('clipScrubberBox'), clipScrub: $('clipScrub'), clipScrubLabel: $('clipScrubLabel'),
+  clipStartBtn: $('clipStartBtn'), clipMiddleBtn: $('clipMiddleBtn'), clipEndBtn: $('clipEndBtn'),
 };
 const previewCtx = els.previewCanvas.getContext('2d');
 
@@ -236,14 +239,24 @@ function renderSlideList() {
         <button type="button" title="Ниже">↓</button>
       </span>
     `;
+    card.dataset.slideIndex = String(index);
     const checkbox = card.querySelector('.slide-check input');
     checkbox.addEventListener('click', (event) => {
       event.stopPropagation();
-      toggleSlideChecked(slide.id, checkbox.checked);
+      if (event.shiftKey) {
+        setRangeChecked(index, checkbox.checked);
+      } else {
+        toggleSlideChecked(slide.id, checkbox.checked, index);
+      }
     });
     card.addEventListener('click', (event) => {
       if (event.target.tagName === 'BUTTON' || event.target.tagName === 'INPUT' || event.target.closest('.slide-check')) return;
-      selectSlide(index);
+      if (event.shiftKey) {
+        addRangeToSelection(index);
+        selectSlide(index, true);
+        return;
+      }
+      selectSlide(index, true);
     });
     const [upBtn, downBtn] = card.querySelectorAll('.slide-actions button');
     upBtn.addEventListener('click', (event) => { event.stopPropagation(); moveSlide(index, index - 1); });
@@ -276,9 +289,38 @@ function renderSelectionState() {
   }
 }
 
-function toggleSlideChecked(id, checked) {
+function toggleSlideChecked(id, checked, index = -1) {
   if (checked) state.selectedIds.add(id);
   else state.selectedIds.delete(id);
+  if (index >= 0) state.lastSelectionAnchor = index;
+  renderSlideList();
+}
+
+function setRangeChecked(index, checked) {
+  if (!state.slides.length) return;
+  const anchor = state.lastSelectionAnchor >= 0 ? state.lastSelectionAnchor : Math.max(0, state.selectedIndex);
+  const from = Math.min(anchor, index);
+  const to = Math.max(anchor, index);
+  for (let i = from; i <= to; i += 1) {
+    const id = state.slides[i]?.id;
+    if (!id) continue;
+    if (checked) state.selectedIds.add(id);
+    else state.selectedIds.delete(id);
+  }
+  state.lastSelectionAnchor = index;
+  renderSlideList();
+}
+
+function addRangeToSelection(index) {
+  if (!state.slides.length) return;
+  const anchor = state.lastSelectionAnchor >= 0 ? state.lastSelectionAnchor : Math.max(0, state.selectedIndex);
+  const from = Math.min(anchor, index);
+  const to = Math.max(anchor, index);
+  for (let i = from; i <= to; i += 1) {
+    const id = state.slides[i]?.id;
+    if (id) state.selectedIds.add(id);
+  }
+  state.lastSelectionAnchor = index;
   renderSlideList();
 }
 
@@ -286,6 +328,7 @@ function selectAllOrNone() {
   if (!state.slides.length) return;
   if (state.selectedIds.size === state.slides.length) state.selectedIds.clear();
   else state.slides.forEach((slide) => state.selectedIds.add(slide.id));
+  state.lastSelectionAnchor = state.slides.length ? 0 : -1;
   renderSlideList();
 }
 
@@ -304,6 +347,7 @@ function deleteSelectedSlides() {
   const previousSelectedSlide = selectedSlide();
   state.slides = state.slides.filter((slide) => !selectedIds.has(slide.id));
   state.selectedIds.clear();
+  state.lastSelectionAnchor = -1;
 
   if (!state.slides.length) {
     state.selectedIndex = -1;
@@ -330,13 +374,22 @@ function moveSlide(from, to) {
 renderSelectionState();
 }
 
-function selectSlide(index) {
+function selectSlide(index, setAnchor = false) {
+  if (!state.slides.length) return;
+  const safeIndex = Math.max(0, Math.min(state.slides.length - 1, index));
   pauseAllVideos();
-  state.selectedIndex = index;
-  state.previewTimeOffset = timeAtSlide(index);
+  state.selectedIndex = safeIndex;
+  if (setAnchor) state.lastSelectionAnchor = safeIndex;
+  state.previewTimeOffset = timeAtSlide(safeIndex);
   syncControls();
   renderAll();
-renderSelectionState();
+  renderSelectionState();
+  scrollSelectedIntoView();
+}
+
+function scrollSelectedIntoView() {
+  const card = els.slideList?.querySelector(`[data-slide-index="${state.selectedIndex}"]`);
+  if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
 function timeAtSlide(index) {
@@ -369,6 +422,57 @@ function updateControlLabels() {
   els.zoomStartValue.textContent = slide ? `${Number(slide.zoomStart).toFixed(2)}×` : '1.00×';
   els.zoomEndValue.textContent = slide ? `${Number(slide.zoomEnd).toFixed(2)}×` : '1.08×';
   els.durationValue.textContent = slide ? `${Number(slide.duration).toFixed(1)} сек.` : '—';
+}
+
+
+function clamp01(value) {
+  return Math.max(0, Math.min(1, Number(value) || 0));
+}
+
+function selectedSlideLocalTime() {
+  const slide = selectedSlide();
+  if (!slide || state.selectedIndex < 0) return 0;
+  const start = timeAtSlide(state.selectedIndex);
+  const duration = Math.max(0.1, Number(slide.duration || 0));
+  return Math.max(0, Math.min(duration, state.previewTimeOffset - start));
+}
+
+function selectedSlideProgress() {
+  const slide = selectedSlide();
+  if (!slide) return 0;
+  return clamp01(selectedSlideLocalTime() / Math.max(0.1, Number(slide.duration || 0)));
+}
+
+function syncClipScrubber() {
+  if (!els.clipScrub || !els.clipScrubLabel) return;
+  const slide = selectedSlide();
+  const disabled = !slide;
+  [els.clipScrub, els.clipStartBtn, els.clipMiddleBtn, els.clipEndBtn].forEach((el) => {
+    if (el) el.disabled = disabled;
+  });
+  if (!slide) {
+    els.clipScrub.value = 0;
+    els.clipScrubLabel.textContent = '—';
+    return;
+  }
+  const duration = Math.max(0.1, Number(slide.duration || 0));
+  const local = selectedSlideLocalTime();
+  const progress = clamp01(local / duration);
+  els.clipScrub.value = String(Math.round(progress * 1000));
+  els.clipScrubLabel.textContent = `${formatTime(local)} / ${formatTime(duration)} · кадр ${state.selectedIndex + 1}`;
+}
+
+function setSelectedSlideProgress(progress) {
+  const slide = selectedSlide();
+  if (!slide || state.selectedIndex < 0) return;
+  if (state.playing) stopPreview(false);
+  const duration = Math.max(0.1, Number(slide.duration || 0));
+  const local = duration * clamp01(progress);
+  const slideStart = timeAtSlide(state.selectedIndex);
+  const total = totalDuration();
+  state.previewTimeOffset = Math.max(0, Math.min(total ? total - 0.001 : slideStart, slideStart + local));
+  prepareVideoForDraw(slide, local, false);
+  drawCurrentPreview();
 }
 
 function applyControlChange() {
@@ -416,6 +520,7 @@ function drawCurrentPreview() {
     previewCtx.clearRect(0, 0, els.previewCanvas.width, els.previewCanvas.height);
     els.emptyState.style.display = 'grid';
     els.currentInfo.textContent = 'Загрузи фото/видео, затем выбери кадр.';
+    syncClipScrubber();
     return;
   }
   els.emptyState.style.display = 'none';
@@ -427,6 +532,7 @@ function drawCurrentPreview() {
   const total = totalDuration();
   els.previewProgress.style.width = total ? `${Math.min(100, (state.previewTimeOffset / total) * 100)}%` : '0%';
   els.timeLabel.textContent = `${formatTime(state.previewTimeOffset)} / ${formatTime(total)}`;
+  syncClipScrubber();
 }
 
 function slideAtTime(time) {
@@ -699,6 +805,7 @@ async function loadProjectFromBrowser() {
     state.slides.forEach(revokeSlideUrls);
     state.slides = [];
     state.selectedIds.clear();
+    state.lastSelectionAnchor = -1;
     state.selectedIndex = -1;
 
     if (project.settings) {
@@ -1089,12 +1196,17 @@ els.clearBtn.addEventListener('click', () => {
   state.slides.forEach(revokeSlideUrls);
   state.slides = [];
   state.selectedIds.clear();
+  state.lastSelectionAnchor = -1;
   state.selectedIndex = -1;
   renderAll();
 renderSelectionState();
 });
 els.playBtn.addEventListener('click', () => state.playing ? stopPreview(false) : startPreview());
 els.stopBtn.addEventListener('click', () => stopPreview(true));
+els.clipScrub?.addEventListener('input', () => setSelectedSlideProgress(Number(els.clipScrub.value) / 1000));
+els.clipStartBtn?.addEventListener('click', () => setSelectedSlideProgress(0));
+els.clipMiddleBtn?.addEventListener('click', () => setSelectedSlideProgress(0.5));
+els.clipEndBtn?.addEventListener('click', () => setSelectedSlideProgress(0.999));
 els.exportBtn.addEventListener('click', exportVideo);
 els.selectAllBtn?.addEventListener('click', selectAllOrNone);
 els.deleteSelectedBtn?.addEventListener('click', deleteSelectedSlides);
@@ -1104,6 +1216,37 @@ els.deleteSavedProjectBtn?.addEventListener('click', deleteSavedProject);
 els.formatSelect.addEventListener('change', updatePreviewCanvasSize);
 els.customWidth.addEventListener('input', updatePreviewCanvasSize);
 els.customHeight.addEventListener('input', updatePreviewCanvasSize);
+
+function isTypingOrControlTarget(target) {
+  if (!target) return false;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || target.isContentEditable;
+}
+
+document.addEventListener('keydown', (event) => {
+  if (!state.slides.length || isTypingOrControlTarget(event.target) || event.ctrlKey || event.metaKey || event.altKey) return;
+  const keys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+  if (!keys.includes(event.key)) return;
+  event.preventDefault();
+  const direction = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1;
+  const currentIndex = state.selectedIndex >= 0 ? state.selectedIndex : 0;
+  const nextIndex = Math.max(0, Math.min(state.slides.length - 1, currentIndex + direction));
+  if (nextIndex === currentIndex) return;
+
+  if (event.shiftKey) {
+    const anchor = state.lastSelectionAnchor >= 0 ? state.lastSelectionAnchor : currentIndex;
+    state.lastSelectionAnchor = anchor;
+    const from = Math.min(anchor, nextIndex);
+    const to = Math.max(anchor, nextIndex);
+    for (let i = from; i <= to; i += 1) {
+      const id = state.slides[i]?.id;
+      if (id) state.selectedIds.add(id);
+    }
+    selectSlide(nextIndex, false);
+  } else {
+    selectSlide(nextIndex, true);
+  }
+});
 
 renderAll();
 renderSelectionState();
