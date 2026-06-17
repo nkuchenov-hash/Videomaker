@@ -350,3 +350,6 @@ canvas.dragging { cursor: grabbing; }
   .ai-tools-head { flex-direction: column; }
   .ai-toggle { width: fit-content; }
 }
+
+.stacked-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.stacked-actions .hint { flex-basis: 100%; margin: 0; }

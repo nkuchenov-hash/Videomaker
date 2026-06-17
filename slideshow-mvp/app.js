@@ -30,7 +30,7 @@ const els = {
   panXValue: $('panXValue'), panYValue: $('panYValue'), zoomStartValue: $('zoomStartValue'), zoomEndValue: $('zoomEndValue'), durationValue: $('durationValue'),
   backgroundMode: $('backgroundMode'), resetSlideBtn: $('resetSlideBtn'),
   fitWholeBtn: $('fitWholeBtn'), coverBtn: $('coverBtn'), softZoomBtn: $('softZoomBtn'), videoHint: $('videoHint'),
-  formatSelect: $('formatSelect'), customSizeBox: $('customSizeBox'), customWidth: $('customWidth'), customHeight: $('customHeight'), fpsSelect: $('fpsSelect'), exportBtn: $('exportBtn'), mp4PackageBtn: $('mp4PackageBtn'),
+  formatSelect: $('formatSelect'), customSizeBox: $('customSizeBox'), customWidth: $('customWidth'), customHeight: $('customHeight'), fpsSelect: $('fpsSelect'), exportBtn: $('exportBtn'), mp4VideoBtn: $('mp4VideoBtn'), mp4PackageBtn: $('mp4PackageBtn'),
   exportProgress: $('exportProgress'), exportStatusText: $('exportStatusText'), audioPreview: $('audioPreview'),
   selectedCount: $('selectedCount'), selectAllBtn: $('selectAllBtn'), deleteSelectedBtn: $('deleteSelectedBtn'),
   saveProjectBtn: $('saveProjectBtn'), loadProjectBtn: $('loadProjectBtn'), deleteSavedProjectBtn: $('deleteSavedProjectBtn'), projectStatus: $('projectStatus'),
@@ -1512,7 +1512,7 @@ async function exportMp4Package() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
-    setExportStatus('MP4-пакет скачан. Распакуй его и запусти run_mp4_render.bat.', 100);
+    setExportStatus('MP4-пакет скачан. Это запасной вариант: распакуй и запусти run_mp4_render.bat.', 100);
   } catch (error) {
     console.error(error);
     setExportStatus('Не удалось собрать MP4-пакет. Возможно, браузеру не хватает памяти для больших видео.', 0);
@@ -1521,7 +1521,25 @@ async function exportMp4Package() {
   }
 }
 
-async function exportVideo() {
+function supportedMimeForExport(kind) {
+  if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return '';
+  const mp4Types = [
+    'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
+    'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+    'video/mp4;codecs="avc1.640028,mp4a.40.2"',
+    'video/mp4;codecs=avc1.640028,mp4a.40.2',
+    'video/mp4;codecs=h264,aac',
+    'video/mp4'
+  ];
+  const webmTypes = [
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm'
+  ];
+  return (kind === 'mp4' ? mp4Types : webmTypes).find((type) => MediaRecorder.isTypeSupported(type)) || '';
+}
+
+async function exportVideo(kind = 'webm') {
   if (!state.slides.length) {
     setExportStatus('Сначала добавь фото/видео.', 0);
     return;
@@ -1531,6 +1549,15 @@ async function exportVideo() {
     setExportStatus('Не удалось посчитать длительность.', 0);
     return;
   }
+  const isMp4 = kind === 'mp4';
+  const mimeType = supportedMimeForExport(kind);
+  if (!mimeType) {
+    setExportStatus(isMp4
+      ? 'Этот браузер не умеет прямой MP4-экспорт. Попробуй свежий Chrome/Edge или запасной MP4-пакет FFmpeg.'
+      : 'Браузер не поддерживает WebM MediaRecorder. Попробуй Chrome/Edge.', 0);
+    return;
+  }
+
   stopPreview(false);
   const [width, height] = getOutputSize();
   const fps = Number(els.fpsSelect.value);
@@ -1561,26 +1588,26 @@ async function exportVideo() {
     setExportStatus('Аудио не удалось добавить, экспортирую без музыки…', 5);
   }
 
-  const mimeType = [
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm'
-  ].find((type) => MediaRecorder.isTypeSupported(type));
-
-  if (!mimeType) {
-    setExportStatus('Браузер не поддерживает WebM MediaRecorder. Попробуй Chrome/Edge.', 0);
+  const chunks = [];
+  let recorder;
+  try {
+    recorder = new MediaRecorder(mixedStream, {
+      mimeType,
+      videoBitsPerSecond: width >= 1920 || height >= 1920 ? 14000000 : 8000000,
+      audioBitsPerSecond: 192000,
+    });
+  } catch (error) {
+    console.error(error);
+    setExportStatus(isMp4
+      ? 'Не удалось запустить MP4-запись в этом браузере. Используй запасной MP4-пакет FFmpeg.'
+      : 'Не удалось запустить WebM-запись.', 0);
     return;
   }
 
-  const chunks = [];
-  const recorder = new MediaRecorder(mixedStream, {
-    mimeType,
-    videoBitsPerSecond: width >= 1920 || height >= 1920 ? 14000000 : 8000000,
-    audioBitsPerSecond: 192000,
-  });
-
-  els.exportBtn.disabled = true;
-  setExportStatus('Идёт экспорт в реальном времени. Не закрывай вкладку…', 0);
+  if (els.mp4VideoBtn) els.mp4VideoBtn.disabled = true;
+  if (els.exportBtn) els.exportBtn.disabled = true;
+  if (els.mp4PackageBtn) els.mp4PackageBtn.disabled = true;
+  setExportStatus(isMp4 ? 'Идёт экспорт MP4-видео. Не закрывай вкладку…' : 'Идёт экспорт WebM-черновика…', 0);
 
   const done = new Promise((resolve, reject) => {
     recorder.ondataavailable = (event) => { if (event.data.size > 0) chunks.push(event.data); };
@@ -1599,7 +1626,7 @@ async function exportVideo() {
       const current = slideAtTime(t);
       prepareVideoForDraw(current.slide, current.localTime, true);
       drawSlide(exportCtx, current.slide, current.progress, width, height);
-      setExportStatus(`Экспорт: ${formatTime(t)} / ${formatTime(total)}`, (t / total) * 100);
+      setExportStatus(`${isMp4 ? 'MP4' : 'WebM'}: ${formatTime(t)} / ${formatTime(total)}`, (t / total) * 100);
       if (elapsed >= total) {
         resolve();
         return;
@@ -1619,22 +1646,26 @@ async function exportVideo() {
 
   const rawBlob = new Blob(chunks, { type: mimeType });
   let blob = rawBlob;
-  try {
-    blob = await fixWebmDuration(rawBlob, total * 1000);
-  } catch (error) {
-    console.warn('Cannot fix WebM duration', error);
+  if (!isMp4) {
+    try {
+      blob = await fixWebmDuration(rawBlob, total * 1000);
+    } catch (error) {
+      console.warn('Cannot fix WebM duration', error);
+    }
   }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   a.href = url;
-  a.download = `slideshow-${width}x${height}-${stamp}.webm`;
+  a.download = `slideshow-${width}x${height}-${stamp}.${isMp4 ? 'mp4' : 'webm'}`;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
-  els.exportBtn.disabled = false;
-  setExportStatus('Готово. WebM скачан с исправленной длительностью для перемотки.', 100);
+  if (els.mp4VideoBtn) els.mp4VideoBtn.disabled = false;
+  if (els.exportBtn) els.exportBtn.disabled = false;
+  if (els.mp4PackageBtn) els.mp4PackageBtn.disabled = false;
+  setExportStatus(isMp4 ? 'Готово. MP4-видео скачано.' : 'Готово. WebM-черновик скачан.', 100);
 }
 
 els.mediaInput.addEventListener('change', (event) => addFiles(event.target.files));
@@ -1829,7 +1860,8 @@ els.clipScrub?.addEventListener('input', () => setSelectedSlideProgress(Number(e
 els.clipStartBtn?.addEventListener('click', () => setSelectedSlideProgress(0));
 els.clipMiddleBtn?.addEventListener('click', () => setSelectedSlideProgress(0.5));
 els.clipEndBtn?.addEventListener('click', () => setSelectedSlideProgress(0.999));
-els.exportBtn.addEventListener('click', exportVideo);
+els.mp4VideoBtn?.addEventListener('click', () => exportVideo('mp4'));
+els.exportBtn.addEventListener('click', () => exportVideo('webm'));
 els.mp4PackageBtn?.addEventListener('click', exportMp4Package);
 els.selectAllBtn?.addEventListener('click', selectAllOrNone);
 els.deleteSelectedBtn?.addEventListener('click', deleteSelectedSlides);

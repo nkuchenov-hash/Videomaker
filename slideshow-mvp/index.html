@@ -12,7 +12,7 @@
       <div>
         <p class="eyebrow">Локальный редактор</p>
         <h1>Family Slideshow Maker</h1>
-        <p class="subtitle">Фото + видео + музыка → аккуратное слайдшоу и финальный MP4-пакет.</p>
+        <p class="subtitle">Фото + видео + музыка → аккуратное слайдшоу и финальное MP4-видео.</p>
       </div>
       <div class="privacy-card compact-card">
         <strong>Локально</strong>
@@ -203,23 +203,24 @@
               </select>
             </label>
           </div>
-          <p class="hint" id="videoHint">Для финального результата используй MP4-пакет.</p>
+          <p class="hint" id="videoHint">Финальный экспорт — MP4-видео. Пакет FFmpeg оставлен как запасной вариант.</p>
         </section>
 
         <section class="panel export-panel">
           <div class="export-main">
             <div>
               <h2>4. Экспорт</h2>
-              <p>Финальный вариант — MP4-пакет для локального рендера через FFmpeg.</p>
+              <p>Скачивает готовое MP4-видео прямо из браузера, если MP4 поддерживается текущим браузером.</p>
             </div>
-            <button id="mp4PackageBtn" class="primary export main-export" type="button">Скачать MP4-пакет</button>
+            <button id="mp4VideoBtn" class="primary export main-export" type="button">Скачать MP4-видео</button>
           </div>
 
           <details class="advanced-export">
-            <summary>Дополнительно: WebM-черновик</summary>
-            <div class="advanced-export-body">
-              <button id="exportBtn" class="secondary export" type="button">Скачать WebM</button>
-              <p class="hint">Только для быстрой проверки. Для видеофрагментов и нормальной перемотки нужен MP4.</p>
+            <summary>Дополнительно</summary>
+            <div class="advanced-export-body stacked-actions">
+              <button id="exportBtn" class="secondary export" type="button">Скачать WebM-черновик</button>
+              <button id="mp4PackageBtn" class="secondary export" type="button">Скачать MP4-пакет FFmpeg</button>
+              <p class="hint">Пакет нужен только если браузер не умеет MP4 или прямой экспорт лагает на больших видео.</p>
             </div>
           </details>
 
@@ -553,11 +554,11 @@ echo.
 echo If installation succeeded, close this window and run run_mp4_render.bat again.
 pause
 </script>
-  <script id="mp4Readme" type="text/plain">MP4 render package for Family Slideshow Maker
+  <script id="mp4Readme" type="text/plain">Optional FFmpeg render package for Family Slideshow Maker
 
 What this package is:
-- This is the reliable final export path.
-- The web app remains the editor.
+- This is the fallback export path if direct browser MP4 is unavailable or lags.
+- The web app now also has direct MP4 video export.
 - This local renderer creates MP4 / H.264 / AAC with normal seeking and full video durations.
 
 How to render on Windows:
