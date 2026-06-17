@@ -10,13 +10,13 @@
   <div class="app-shell">
     <header class="topbar">
       <div>
-        <p class="eyebrow">Локальное веб-приложение</p>
+        <p class="eyebrow">Локальный редактор</p>
         <h1>Family Slideshow Maker</h1>
-        <p class="subtitle">Фото + видео + музыка → слайдшоу с ручным кадрированием, форматами 16:9 / 4:3 / 1:1 / вертикальный и мягким зумом.</p>
+        <p class="subtitle">Фото + видео + музыка → аккуратное слайдшоу и финальный MP4-пакет.</p>
       </div>
-      <div class="privacy-card">
-        <strong>Файлы не загружаются на сервер</strong>
-        <span>Всё работает прямо в браузере. GitHub Pages нужен только чтобы открыть страницу.</span>
+      <div class="privacy-card compact-card">
+        <strong>Локально</strong>
+        <span>Медиа не отправляются на сервер.</span>
       </div>
     </header>
 
@@ -24,16 +24,15 @@
       <section class="panel media-panel">
         <div class="panel-header">
           <div>
-            <h2>1. Кадры и загрузка</h2>
-            <p>Список кадров теперь сразу слева на одном уровне с предпросмотром. При просмотре переключай кадры стрелками ↑/↓ или ←/→. Shift+клик по чекбоксу/кадру выделяет пачку файлов.</p>
+            <h2>1. Кадры</h2>
+            <p>↑/↓ — переключение, Shift — выделение диапазона.</p>
           </div>
         </div>
 
         <div class="timeline-header top-timeline-header">
           <div>
-            <h3>Порядок кадров</h3>
+            <h3>Порядок</h3>
             <span id="selectedCount" class="selected-count">Ничего не выбрано</span>
-            <p class="hint compact-hint">Shift+клик — выделить диапазон. Shift+↑/↓ — расширить выделение с клавиатуры.</p>
           </div>
           <div class="timeline-actions">
             <button class="ghost" id="selectAllBtn" type="button">Выбрать все</button>
@@ -44,14 +43,14 @@
         <div class="slide-list" id="slideList"></div>
 
         <div class="upload-block">
-          <h3>Добавить файлы</h3>
+          <h3>Добавить</h3>
         </div>
 
         <label class="dropzone" id="dropzone">
           <input id="mediaInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime,video/*" multiple />
           <span class="drop-icon">＋</span>
-          <strong>Выбрать или перетащить фото/видео</strong>
-          <small>JPG / PNG / WebP / MP4 / MOV / WebM. Звук видео в MVP отключается, используется выбранная музыка.</small>
+          <strong>Фото/видео</strong>
+          <small>JPG, PNG, WebP, MP4, MOV, WebM</small>
         </label>
 
         <label class="audio-picker">
@@ -70,10 +69,10 @@
           <button class="secondary" id="loadProjectBtn" type="button">Открыть сохранённый</button>
           <button class="ghost" id="deleteSavedProjectBtn" type="button">Удалить сохранение</button>
         </div>
-        <p class="hint" id="projectStatus">Проект сохраняется локально в этом браузере вместе с медиафайлами. На сервер ничего не отправляется.</p>
+        <p class="hint" id="projectStatus">Сохранение остаётся в этом браузере.</p>
 
         <button class="secondary full" id="fitToMusicBtn" type="button">Подогнать фото под длину музыки</button>
-        <p class="hint">Видео сохраняют свою длительность. Оставшееся время музыки распределяется между фото.</p>
+        <p class="hint">Видео сохраняют длительность, фото подгоняются под музыку.</p>
 
       </section>
 
@@ -81,8 +80,8 @@
         <section class="panel preview-panel">
           <div class="panel-header horizontal">
             <div>
-              <h2>2. Формат и предпросмотр</h2>
-              <p id="currentInfo">Загрузи фото/видео, затем выбери кадр.</p>
+              <h2>2. Предпросмотр</h2>
+              <p id="currentInfo">Загрузи медиа и выбери кадр.</p>
             </div>
             <div class="export-options">
               <label>
@@ -126,14 +125,14 @@
 
           <div class="clip-scrubber" id="clipScrubberBox">
             <div class="clip-scrubber-head">
-              <strong>Проверка выбранного кадра</strong>
+              <strong>Проверка кадра</strong>
               <span id="clipScrubLabel">—</span>
             </div>
             <input id="clipScrub" type="range" min="0" max="1000" step="1" value="0" />
             <div class="clip-scrubber-actions">
-              <button class="ghost" id="clipStartBtn" type="button">Начало кадра</button>
+              <button class="ghost" id="clipStartBtn" type="button">Начало</button>
               <button class="ghost" id="clipMiddleBtn" type="button">Середина</button>
-              <button class="ghost" id="clipEndBtn" type="button">Конец кадра</button>
+              <button class="ghost" id="clipEndBtn" type="button">Конец</button>
             </div>
           </div>
         </section>
@@ -141,8 +140,8 @@
         <section class="panel edit-panel">
           <div class="panel-header horizontal">
             <div>
-              <h2>3. Кадрирование и зум</h2>
-              <p>Можно отдалять до 0.25×, чтобы влезал весь контент, или приближать для кинематографичного движения. Для проверки начала/конца выбранного кадра используй ползунок под предпросмотром.</p>
+              <h2>3. Кадрирование</h2>
+              <p>Зум, сдвиг и фон для выбранного кадра.</p>
             </div>
             <button class="ghost" id="resetSlideBtn" type="button">Сбросить кадр</button>
           </div>
@@ -178,20 +177,27 @@
               </select>
             </label>
           </div>
-          <p class="hint" id="videoHint">Для видео длительность можно менять, но его звук в веб-MVP не смешивается — используется музыка.</p>
+          <p class="hint" id="videoHint">Для финального результата используй MP4-пакет.</p>
         </section>
 
         <section class="panel export-panel">
-          <div>
-            <h2>4. Экспорт</h2>
-            <p>WebM оставлен только как быстрый черновик. Для нормального финального видео скачай MP4‑пакет и запусти локальный рендер через FFmpeg: получится MP4 / H.264 / AAC с нормальной перемоткой и полной длительностью видеофрагментов.</p>
+          <div class="export-main">
+            <div>
+              <h2>4. Экспорт</h2>
+              <p>Финальный вариант — MP4-пакет для локального рендера через FFmpeg.</p>
+            </div>
+            <button id="mp4PackageBtn" class="primary export main-export" type="button">Скачать MP4-пакет</button>
           </div>
-          <div class="export-buttons">
-            <button id="exportBtn" class="secondary export" type="button">Скачать черновик WebM</button>
-            <button id="mp4PackageBtn" class="primary export" type="button">Скачать пакет для MP4</button>
-          </div>
-          <p class="hint">Пакет содержит project.json, все фото/видео/музыку и готовые файлы run_mp4_render.bat / render_mp4.py.</p>
-          <div class="export-status">
+
+          <details class="advanced-export">
+            <summary>Дополнительно: WebM-черновик</summary>
+            <div class="advanced-export-body">
+              <button id="exportBtn" class="secondary export" type="button">Скачать WebM</button>
+              <p class="hint">Только для быстрой проверки. Для видеофрагментов и нормальной перемотки нужен MP4.</p>
+            </div>
+          </details>
+
+          <div class="export-status compact-status">
             <div class="progress-shell"><div id="exportProgress"></div></div>
             <span id="exportStatusText">Готово к экспорту</span>
           </div>
