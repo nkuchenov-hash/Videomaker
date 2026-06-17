@@ -266,3 +266,67 @@ canvas { display: block; width: 100%; height: auto; max-height: 68vh; background
   .compact-status { grid-template-columns: 1fr; }
   #exportStatusText { white-space: normal; }
 }
+
+/* v10: visible local AI tools */
+.ai-tools {
+  margin: 0 0 14px;
+  padding: 13px;
+  border-radius: 20px;
+  border: 1px solid rgba(131, 230, 195, .28);
+  background: linear-gradient(135deg, rgba(131,230,195,.10), rgba(143,172,255,.075));
+}
+.ai-tools-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 11px;
+}
+.ai-tools-head strong {
+  display: block;
+  font-size: 14px;
+  color: #effff8;
+}
+.ai-tools-head span {
+  display: block;
+  margin-top: 3px;
+  color: rgba(245,247,255,.70);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.ai-toggle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.15);
+  background: rgba(255,255,255,.06);
+  color: rgba(245,247,255,.82);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.ai-toggle input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--brand);
+}
+.ai-actions {
+  margin-bottom: 0;
+}
+.ai-actions .primary,
+.ai-actions .secondary {
+  min-height: 40px;
+}
+.ai-actions .primary {
+  box-shadow: 0 10px 26px rgba(131,230,195,.14);
+}
+.manual-actions {
+  opacity: .92;
+}
+@media (max-width: 720px) {
+  .ai-tools-head { flex-direction: column; }
+  .ai-toggle { width: fit-content; }
+}

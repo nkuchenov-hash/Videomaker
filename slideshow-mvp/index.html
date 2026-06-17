@@ -146,7 +146,25 @@
             <button class="ghost" id="resetSlideBtn" type="button">Сбросить кадр</button>
           </div>
 
-          <div class="quick-actions">
+          <div class="ai-tools">
+            <div class="ai-tools-head">
+              <div>
+                <strong>AI авто-кадрирование</strong>
+                <span id="aiStatus">Лица + вертикальные фото обрабатываются локально.</span>
+              </div>
+              <label class="ai-toggle">
+                <input id="aiAutoForNew" type="checkbox" checked />
+                Авто для новых
+              </label>
+            </div>
+            <div class="quick-actions ai-actions">
+              <button class="primary" id="aiSelectedBtn" type="button">AI выбранный кадр</button>
+              <button class="secondary" id="aiAllBtn" type="button">AI обработать все</button>
+              <button class="secondary" id="verticalBgBtn" type="button">Фон для вертикальных</button>
+            </div>
+          </div>
+
+          <div class="quick-actions manual-actions">
             <button class="secondary" id="fitWholeBtn" type="button">Вписать целиком</button>
             <button class="secondary" id="coverBtn" type="button">Заполнить кадр</button>
             <button class="secondary" id="softZoomBtn" type="button">Мягкий зум</button>

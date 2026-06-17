@@ -11,6 +11,8 @@ const state = {
   previewTimeOffset: 0,
   raf: null,
   activeVideoId: null,
+  aiAutoForNew: true,
+  faceDetectorReady: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -30,6 +32,8 @@ const els = {
   saveProjectBtn: $('saveProjectBtn'), loadProjectBtn: $('loadProjectBtn'), deleteSavedProjectBtn: $('deleteSavedProjectBtn'), projectStatus: $('projectStatus'),
   clipScrubberBox: $('clipScrubberBox'), clipScrub: $('clipScrub'), clipScrubLabel: $('clipScrubLabel'),
   clipStartBtn: $('clipStartBtn'), clipMiddleBtn: $('clipMiddleBtn'), clipEndBtn: $('clipEndBtn'),
+  aiSelectedBtn: $('aiSelectedBtn'), aiAllBtn: $('aiAllBtn'), verticalBgBtn: $('verticalBgBtn'),
+  aiAutoForNew: $('aiAutoForNew'), aiStatus: $('aiStatus'),
 };
 const previewCtx = els.previewCanvas.getContext('2d');
 
@@ -144,10 +148,257 @@ function makeVideoThumb(video, width, height) {
   return canvas.toDataURL('image/jpeg', 0.78);
 }
 
+
+let faceDetectorPromise = null;
+let faceDetector = null;
+
+function setAiStatus(text) {
+  if (els.aiStatus) els.aiStatus.textContent = text;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, Number(value) || 0));
+}
+
+async function getFaceDetector() {
+  if (faceDetector) return faceDetector;
+  if (!faceDetectorPromise) {
+    faceDetectorPromise = (async () => {
+      setAiStatus('Загружаю локальную AI-модель лиц…');
+      const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/+esm');
+      const fileset = await vision.FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm');
+      const detector = await vision.FaceDetector.createFromOptions(fileset, {
+        baseOptions: {
+          modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite',
+        },
+        runningMode: 'IMAGE',
+        minDetectionConfidence: 0.45,
+      });
+      faceDetector = detector;
+      state.faceDetectorReady = true;
+      setAiStatus('AI готов: лица ищутся прямо в браузере.');
+      return detector;
+    })().catch((error) => {
+      console.warn('Face detector unavailable', error);
+      faceDetectorPromise = null;
+      setAiStatus('AI-модель не загрузилась. Применяю базовое авто-кадрирование.');
+      return null;
+    });
+  }
+  return faceDetectorPromise;
+}
+
+function detectionToBox(detection) {
+  const box = detection?.boundingBox;
+  if (!box) return null;
+  const x = Number(box.originX ?? box.xMin ?? box.x ?? 0);
+  const y = Number(box.originY ?? box.yMin ?? box.y ?? 0);
+  const w = Number(box.width ?? ((box.xMax || 0) - x) ?? 0);
+  const h = Number(box.height ?? ((box.yMax || 0) - y) ?? 0);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
+  return { x, y, w, h };
+}
+
+function unionBoxes(boxes) {
+  if (!boxes.length) return null;
+  const left = Math.min(...boxes.map((box) => box.x));
+  const top = Math.min(...boxes.map((box) => box.y));
+  const right = Math.max(...boxes.map((box) => box.x + box.w));
+  const bottom = Math.max(...boxes.map((box) => box.y + box.h));
+  return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
+function expandedBox(box, width, height, marginRatio = 0.72) {
+  if (!box) return null;
+  const marginX = Math.max(40, box.w * marginRatio);
+  const marginTop = Math.max(50, box.h * 0.92);
+  const marginBottom = Math.max(35, box.h * 0.58);
+  const x = clamp(box.x - marginX, 0, width);
+  const y = clamp(box.y - marginTop, 0, height);
+  const right = clamp(box.x + box.w + marginX, 0, width);
+  const bottom = clamp(box.y + box.h + marginBottom, 0, height);
+  return { x, y, w: Math.max(1, right - x), h: Math.max(1, bottom - y) };
+}
+
+function aspectDistance(a, b) {
+  if (!a || !b) return 0;
+  return Math.abs(Math.log(a / b));
+}
+
+function canBoxFitInCover(slide, box, outW, outH, zoom) {
+  if (!box) return true;
+  const srcW = slide.width || 1;
+  const srcH = slide.height || 1;
+  const scale = Math.max(outW / srcW, outH / srcH) * zoom;
+  const safeW = outW * 0.88;
+  const safeH = outH * 0.86;
+  return box.w * scale <= safeW && box.h * scale <= safeH;
+}
+
+function computePanForBox(slide, box, outW, outH, zoom) {
+  const srcW = slide.width || 1;
+  const srcH = slide.height || 1;
+  const baseScale = slide.backgroundMode === 'cover'
+    ? Math.max(outW / srcW, outH / srcH)
+    : Math.min(outW / srcW, outH / srcH);
+  const scale = baseScale * zoom;
+  const drawW = srcW * scale;
+  const drawH = srcH * scale;
+  const freeX = Math.max(0, Math.abs(drawW - outW) / 2);
+  const freeY = Math.max(0, Math.abs(drawH - outH) / 2);
+  const baseDx = (outW - drawW) / 2;
+  const baseDy = (outH - drawH) / 2;
+  const focus = box
+    ? { x: box.x + box.w / 2, y: box.y + box.h * 0.46 }
+    : { x: srcW / 2, y: srcH / 2 };
+  let offsetX = outW * 0.5 - focus.x * scale - baseDx;
+  let offsetY = outH * 0.45 - focus.y * scale - baseDy;
+
+  if (box && slide.backgroundMode === 'cover') {
+    const marginX = outW * 0.06;
+    const marginY = outH * 0.07;
+    const minOffsetX = marginX - baseDx - box.x * scale;
+    const maxOffsetX = outW - marginX - baseDx - (box.x + box.w) * scale;
+    const minOffsetY = marginY - baseDy - box.y * scale;
+    const maxOffsetY = outH - marginY - baseDy - (box.y + box.h) * scale;
+    if (minOffsetX <= maxOffsetX) offsetX = clamp(offsetX, minOffsetX, maxOffsetX);
+    if (minOffsetY <= maxOffsetY) offsetY = clamp(offsetY, minOffsetY, maxOffsetY);
+  }
+
+  const panX = freeX > 0.5 ? clamp((offsetX / freeX) * 100, -200, 200) : 0;
+  const panY = freeY > 0.5 ? clamp((offsetY / freeY) * 100, -200, 200) : 0;
+  return { panX: Math.round(panX), panY: Math.round(panY) };
+}
+
+function applyBasicSmartCrop(slide, reason = '') {
+  if (!slide) return;
+  const [outW, outH] = getOutputSize();
+  const srcAspect = (slide.width || 1) / (slide.height || 1);
+  const outAspect = outW / outH;
+  const verticalOrMismatch = aspectDistance(srcAspect, outAspect) > 0.33;
+  slide.panX = 0;
+  slide.panY = 0;
+  slide.zoomStart = 1;
+  slide.zoomEnd = slide.type === 'video' ? 1 : 1.06;
+  slide.backgroundMode = verticalOrMismatch ? 'containBlur' : 'cover';
+  slide.aiStatus = reason || (verticalOrMismatch ? 'фон без обрезки' : 'мягкий зум');
+}
+
+async function detectFacesForSlide(slide) {
+  if (!slide) return [];
+  const detector = await getFaceDetector();
+  if (!detector) return [];
+  let source = slide.source;
+  if (slide.type === 'video') {
+    const video = slide.source;
+    const target = Math.min(Math.max(0.2, (slide.originalDuration || 1) * 0.18), Math.max(0.1, (slide.originalDuration || 1) - 0.1));
+    try {
+      video.pause();
+      video.currentTime = target;
+      await waitForEvent(video, 'seeked', 3000);
+    } catch (_) {}
+    source = video;
+  }
+  try {
+    const result = detector.detect(source);
+    return (result?.detections || []).map(detectionToBox).filter(Boolean);
+  } catch (error) {
+    console.warn('AI face detection failed for', slide.name, error);
+    return [];
+  }
+}
+
+function applyFaceSafeCrop(slide, boxes) {
+  const [outW, outH] = getOutputSize();
+  const srcW = slide.width || 1;
+  const srcH = slide.height || 1;
+  const srcAspect = srcW / srcH;
+  const outAspect = outW / outH;
+  const faces = unionBoxes(boxes);
+  const safeBox = faces ? expandedBox(faces, srcW, srcH) : null;
+
+  if (!safeBox) {
+    applyBasicSmartCrop(slide, 'лиц не найдено');
+    return;
+  }
+
+  const strongMismatch = aspectDistance(srcAspect, outAspect) > 0.46;
+  slide.zoomStart = 1;
+  slide.zoomEnd = slide.type === 'video' ? 1 : 1.06;
+
+  if (strongMismatch || !canBoxFitInCover(slide, safeBox, outW, outH, slide.zoomEnd)) {
+    slide.backgroundMode = 'containBlur';
+  } else {
+    slide.backgroundMode = 'cover';
+  }
+
+  const pan = computePanForBox(slide, safeBox, outW, outH, slide.zoomEnd);
+  slide.panX = pan.panX;
+  slide.panY = pan.panY;
+  slide.aiStatus = `лица: ${boxes.length}`;
+}
+
+async function smartCropSlide(slide, index = state.selectedIndex) {
+  if (!slide) return;
+  applyBasicSmartCrop(slide, 'обработка…');
+  renderAll();
+  const boxes = await detectFacesForSlide(slide);
+  applyFaceSafeCrop(slide, boxes);
+  if (index === state.selectedIndex) setSelectedSlideProgress(0);
+  syncControls();
+  renderAll();
+}
+
+async function smartCropIndices(indices, sourceLabel = 'AI') {
+  const targets = indices.filter((index) => state.slides[index]);
+  if (!targets.length) return;
+  const selectedBefore = state.selectedIndex;
+  if (els.aiSelectedBtn) els.aiSelectedBtn.disabled = true;
+  if (els.aiAllBtn) els.aiAllBtn.disabled = true;
+  try {
+    for (let i = 0; i < targets.length; i += 1) {
+      const index = targets[i];
+      const slide = state.slides[index];
+      setAiStatus(`${sourceLabel}: ${i + 1}/${targets.length} — ${slide.name}`);
+      setExportStatus(`${sourceLabel}: ${i + 1}/${targets.length}`, Math.round((i / targets.length) * 100));
+      await smartCropSlide(slide, index);
+    }
+    if (selectedBefore >= 0 && selectedBefore < state.slides.length) state.selectedIndex = selectedBefore;
+    setAiStatus(`AI готово: обработано ${targets.length} кадр(ов).`);
+    setExportStatus('AI авто-кадрирование применено.', 100);
+  } finally {
+    if (els.aiSelectedBtn) els.aiSelectedBtn.disabled = false;
+    if (els.aiAllBtn) els.aiAllBtn.disabled = false;
+    renderAll();
+  }
+}
+
+function applyVerticalBackgroundToAll() {
+  const [outW, outH] = getOutputSize();
+  const outAspect = outW / outH;
+  let count = 0;
+  state.slides.forEach((slide) => {
+    const srcAspect = (slide.width || 1) / (slide.height || 1);
+    if (aspectDistance(srcAspect, outAspect) > 0.33) {
+      slide.backgroundMode = 'containBlur';
+      slide.zoomStart = Math.max(0.85, Math.min(1, Number(slide.zoomStart) || 1));
+      slide.zoomEnd = slide.type === 'video' ? slide.zoomStart : Math.max(slide.zoomStart, Math.min(1.06, Number(slide.zoomEnd) || 1.06));
+      slide.panX = 0;
+      slide.panY = 0;
+      slide.aiStatus = 'размытый фон';
+      count += 1;
+    }
+  });
+  setAiStatus(`Фон применён к ${count} вертикальным/нестандартным кадрам.`);
+  renderAll();
+}
+
+
 async function addFiles(fileList) {
   const files = [...fileList].filter((file) => file.type.startsWith('image/') || file.type.startsWith('video/'));
   if (!files.length) return;
   setExportStatus(`Загружаю ${files.length} файл(ов)…`, 0);
+  const startIndex = state.slides.length;
   for (const file of files) {
     try {
       const loaded = file.type.startsWith('video/') ? await loadVideoFromFile(file) : await loadImageFromFile(file);
@@ -172,7 +423,14 @@ async function addFiles(fileList) {
   if (state.audioDuration) fitToMusic(false);
   setExportStatus('Файлы добавлены.', 0);
   renderAll();
-renderSelectionState();
+  renderSelectionState();
+  if (state.aiAutoForNew) {
+    const indices = state.slides.slice(startIndex).map((_, offset) => startIndex + offset);
+    smartCropIndices(indices, 'AI для новых').catch((error) => {
+      console.warn(error);
+      setAiStatus('AI авто-обработка не сработала. Можно нажать AI обработать все ещё раз.');
+    });
+  }
 }
 
 function fitToMusic(showMessage = true) {
@@ -232,7 +490,7 @@ function renderSlideList() {
       ${thumbHtml}
       <span class="slide-title">
         <strong>${index + 1}. ${escapeHtml(slide.name)}</strong>
-        <span>${kind} · ${slide.width}×${slide.height} · ${Number(slide.duration).toFixed(1)} сек.</span>
+        <span>${kind} · ${slide.width}×${slide.height} · ${Number(slide.duration).toFixed(1)} сек.${slide.aiStatus ? ` · AI ${escapeHtml(slide.aiStatus)}` : ''}</span>
       </span>
       <span class="slide-actions">
         <button type="button" title="Выше">↑</button>
@@ -399,7 +657,7 @@ function timeAtSlide(index) {
 function syncControls() {
   const slide = selectedSlide();
   const disabled = !slide;
-  [els.panX, els.panY, els.zoomStart, els.zoomEnd, els.duration, els.backgroundMode, els.resetSlideBtn, els.fitWholeBtn, els.coverBtn, els.softZoomBtn].forEach((el) => { el.disabled = disabled; });
+  [els.panX, els.panY, els.zoomStart, els.zoomEnd, els.duration, els.backgroundMode, els.resetSlideBtn, els.fitWholeBtn, els.coverBtn, els.softZoomBtn, els.aiSelectedBtn].forEach((el) => { if (el) el.disabled = disabled; });
   if (!slide) {
     updateControlLabels();
     return;
@@ -770,6 +1028,7 @@ function makeProjectSnapshot() {
       duration: slide.duration,
       backgroundMode: slide.backgroundMode,
       originalDuration: slide.originalDuration,
+      aiStatus: slide.aiStatus || '',
     })),
   };
 }
@@ -847,6 +1106,7 @@ async function loadProjectFromBrowser() {
           duration: Number(item.duration || loaded.originalDuration || 4),
           backgroundMode: item.backgroundMode || 'cover',
           originalDuration: Number(item.originalDuration || loaded.originalDuration || 4),
+          aiStatus: item.aiStatus || '',
         });
       } catch (error) {
         console.warn('Cannot restore media', item.name, error);
@@ -1082,6 +1342,7 @@ async function exportMp4Package() {
         zoomStart: Number(slide.zoomStart ?? 1),
         zoomEnd: Number(slide.zoomEnd ?? (slide.type === 'video' ? 1 : 1.08)),
         backgroundMode: slide.backgroundMode || 'cover',
+        aiStatus: slide.aiStatus || '',
       });
     });
 
@@ -1328,6 +1589,27 @@ els.softZoomBtn.addEventListener('click', () => {
   syncControls();
   drawCurrentPreview();
 });
+
+
+els.aiAutoForNew?.addEventListener('change', () => {
+  state.aiAutoForNew = Boolean(els.aiAutoForNew.checked);
+  setAiStatus(state.aiAutoForNew ? 'AI будет автоматически обрабатывать новые кадры.' : 'AI авто-обработка новых кадров выключена.');
+});
+els.aiSelectedBtn?.addEventListener('click', () => {
+  const slide = selectedSlide();
+  if (!slide) return;
+  smartCropIndices([state.selectedIndex], 'AI выбранный').catch((error) => {
+    console.warn(error);
+    setAiStatus('AI выбранного кадра не сработал.');
+  });
+});
+els.aiAllBtn?.addEventListener('click', () => {
+  smartCropIndices(state.slides.map((_, index) => index), 'AI все').catch((error) => {
+    console.warn(error);
+    setAiStatus('AI обработка всех кадров не сработала.');
+  });
+});
+els.verticalBgBtn?.addEventListener('click', applyVerticalBackgroundToAll);
 
 els.fitToMusicBtn.addEventListener('click', () => fitToMusic(true));
 els.clearBtn.addEventListener('click', () => {
