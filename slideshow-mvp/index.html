@@ -12,7 +12,7 @@
       <div>
         <p class="eyebrow">Локальное веб-приложение</p>
         <h1>Family Slideshow Maker</h1>
-        <p class="subtitle">Фото + видео + музыка → слайдшоу с ручным кадрированием, форматами 16:9 / 4:3 / 1:1 / вертикальный, мягким зумом и бесплатным AI-фокусом на лицах.</p>
+        <p class="subtitle">Фото + видео + музыка → слайдшоу с ручным кадрированием, форматами 16:9 / 4:3 / 1:1 / вертикальный и мягким зумом.</p>
       </div>
       <div class="privacy-card">
         <strong>Файлы не загружаются на сервер</strong>
@@ -51,7 +51,7 @@
           <input id="mediaInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime,video/*" multiple />
           <span class="drop-icon">＋</span>
           <strong>Выбрать или перетащить фото/видео</strong>
-          <small>JPG / PNG / WebP / MP4 / MOV / WebM. Звук видео в MVP отключается, используется выбранная музыка. AI-обработка лиц работает локально в браузере.</small>
+          <small>JPG / PNG / WebP / MP4 / MOV / WebM. Звук видео в MVP отключается, используется выбранная музыка.</small>
         </label>
 
         <label class="audio-picker">
@@ -112,10 +112,9 @@
             </div>
           </div>
 
-          <div class="canvas-wrap" id="canvasWrap" title="Колесо мыши — зум выбранной точки. Зажатая мышь — сдвиг кадра.">
+          <div class="canvas-wrap" id="canvasWrap">
             <canvas id="previewCanvas" width="960" height="540"></canvas>
             <div class="empty-state" id="emptyState">Здесь появится предпросмотр</div>
-            <div class="canvas-hint">Колесо — зум · Зажатая мышь — сдвиг X/Y</div>
           </div>
 
           <div class="transport">
@@ -143,7 +142,7 @@
           <div class="panel-header horizontal">
             <div>
               <h2>3. Кадрирование и зум</h2>
-              <p>Теперь начало и конец кадра можно настраивать отдельно. Колесом мыши зуммируй прямо в окне предпросмотра, зажатой мышью двигай кадр по X/Y.</p>
+              <p>Можно отдалять до 0.25×, чтобы влезал весь контент, или приближать для кинематографичного движения. Для проверки начала/конца выбранного кадра используй ползунок под предпросмотром.</p>
             </div>
             <button class="ghost" id="resetSlideBtn" type="button">Сбросить кадр</button>
           </div>
@@ -154,38 +153,12 @@
             <button class="secondary" id="softZoomBtn" type="button">Мягкий зум</button>
           </div>
 
-          <div class="ai-tools">
-            <div class="ai-tools-head">
-              <div>
-                <strong>AI авто-фокус на лицах</strong>
-                <span>Бесплатно и локально: фото не отправляются на сервер, модель загружается в браузер.</span>
-              </div>
-              <label class="toggle-row">
-                <input id="autoAiOnAdd" type="checkbox" checked />
-                <span>Авто после загрузки</span>
-              </label>
-            </div>
-            <div class="ai-actions">
-              <button class="secondary" id="smartCropAllBtn" type="button">AI обработать все</button>
-              <button class="secondary" id="smartCropSelectedBtn" type="button">AI выбранный кадр</button>
-              <button class="ghost" id="portraitBackgroundBtn" type="button">Фон для вертикальных</button>
-            </div>
-            <p class="hint" id="aiStatus">AI найдёт лица и подберёт зум/позицию так, чтобы лица не обрезались в начале и конце кадра.</p>
-          </div>
-
-          <div class="keyframe-switch">
-            <span>Редактировать положение:</span>
-            <button class="ghost active" id="editStartFrameBtn" type="button">Начало кадра</button>
-            <button class="ghost" id="editEndFrameBtn" type="button">Конец кадра</button>
-            <small id="editFrameHint">Сейчас меняется начало. Зум/сдвиг конца можно настроить отдельно.</small>
-          </div>
-
           <div class="controls-grid">
-            <label>Сдвиг X выбранной точки <span id="panXValue">0</span>
-              <input id="panX" type="range" min="-300" max="300" value="0" />
+            <label>Сдвиг по X <span id="panXValue">0</span>
+              <input id="panX" type="range" min="-200" max="200" value="0" />
             </label>
-            <label>Сдвиг Y выбранной точки <span id="panYValue">0</span>
-              <input id="panY" type="range" min="-300" max="300" value="0" />
+            <label>Сдвиг по Y <span id="panYValue">0</span>
+              <input id="panY" type="range" min="-200" max="200" value="0" />
             </label>
             <label>Зум в начале <span id="zoomStartValue">1.00×</span>
               <input id="zoomStart" type="range" min="0.25" max="4" step="0.01" value="1" />
@@ -211,9 +184,13 @@
         <section class="panel export-panel">
           <div>
             <h2>4. Экспорт</h2>
-            <p>Веб-экспорт остаётся WebM, но теперь файл дописывается с длительностью, чтобы нормально проматывался в плеерах. Для железобетонного MP4/H.264 под телевизор потом лучше добавить локальный FFmpeg-экспорт.</p>
+            <p>WebM оставлен только как быстрый черновик. Для нормального финального видео скачай MP4‑пакет и запусти локальный рендер через FFmpeg: получится MP4 / H.264 / AAC с нормальной перемоткой и полной длительностью видеофрагментов.</p>
           </div>
-          <button id="exportBtn" class="primary export" type="button">Скачать WebM с перемоткой</button>
+          <div class="export-buttons">
+            <button id="exportBtn" class="secondary export" type="button">Скачать черновик WebM</button>
+            <button id="mp4PackageBtn" class="primary export" type="button">Скачать пакет для MP4</button>
+          </div>
+          <p class="hint">Пакет содержит project.json, все фото/видео/музыку и готовые файлы run_mp4_render.bat / render_mp4.py.</p>
           <div class="export-status">
             <div class="progress-shell"><div id="exportProgress"></div></div>
             <span id="exportStatusText">Готово к экспорту</span>
@@ -224,6 +201,345 @@
   </div>
 
   <audio id="audioPreview" preload="metadata"></audio>
+  <script id="mp4RendererPy" type="text/plain">#!/usr/bin/env python3
+# Local MP4 renderer for Family Slideshow Maker export packages.
+# Requires: Python 3, FFmpeg in PATH. Pillow will be installed automatically if missing.
+
+import json
+import math
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+def ensure_pillow():
+    try:
+        from PIL import Image, ImageFilter, ImageEnhance, ImageOps
+        return Image, ImageFilter, ImageEnhance, ImageOps
+    except ImportError:
+        print("Pillow is required for photo rendering. Trying to install it with pip...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "Pillow"])
+            from PIL import Image, ImageFilter, ImageEnhance, ImageOps
+            return Image, ImageFilter, ImageEnhance, ImageOps
+        except Exception as exc:
+            print("Cannot install Pillow automatically.")
+            print("Run manually: py -m pip install Pillow")
+            raise exc
+
+
+def find_ffmpeg():
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        print("FFmpeg was not found in PATH.")
+        print("On Windows you can run install_ffmpeg_windows.bat, or install FFmpeg with:")
+        print("winget install --id Gyan.FFmpeg -e")
+        sys.exit(2)
+    return ffmpeg
+
+
+def run(cmd):
+    print("\n> " + " ".join(str(c) for c in cmd))
+    subprocess.check_call([str(c) for c in cmd])
+
+
+def ease(t):
+    return t * t * (3 - 2 * t)
+
+
+def lerp(a, b, t):
+    return a + (b - a) * t
+
+
+def parse_float(value, default):
+    try:
+        value = float(value)
+        if math.isfinite(value):
+            return value
+    except Exception:
+        pass
+    return default
+
+
+def fit_size(src_w, src_h, out_w, out_h, mode):
+    if mode == "cover":
+        scale = max(out_w / src_w, out_h / src_h)
+    else:
+        scale = min(out_w / src_w, out_h / src_h)
+    return max(1, int(round(src_w * scale))), max(1, int(round(src_h * scale)))
+
+
+def make_blur_background(img, out_w, out_h, ImageFilter, ImageEnhance):
+    bg_w, bg_h = fit_size(img.width, img.height, out_w, out_h, "cover")
+    bg = img.resize((bg_w, bg_h), resample=1)
+    left = max(0, (bg_w - out_w) // 2)
+    top = max(0, (bg_h - out_h) // 2)
+    bg = bg.crop((left, top, left + out_w, top + out_h))
+    bg = bg.filter(ImageFilter.GaussianBlur(radius=34))
+    bg = ImageEnhance.Brightness(bg).enhance(0.62)
+    bg = ImageEnhance.Color(bg).enhance(1.15)
+    return bg
+
+
+def draw_image_frame(img, slide, frame_index, frame_count, out_w, out_h, pil_modules):
+    Image, ImageFilter, ImageEnhance, _ImageOps = pil_modules
+    mode = slide.get("backgroundMode") or "cover"
+    if mode == "containBlur":
+        frame = make_blur_background(img, out_w, out_h, ImageFilter, ImageEnhance)
+    else:
+        frame = Image.new("RGB", (out_w, out_h), (2, 3, 10))
+
+    t = 0 if frame_count <= 1 else frame_index / (frame_count - 1)
+    p = ease(t)
+    zoom_start = max(0.05, parse_float(slide.get("zoomStart"), 1.0))
+    zoom_end = max(0.05, parse_float(slide.get("zoomEnd"), zoom_start))
+    zoom = lerp(zoom_start, zoom_end, p)
+
+    contain_modes = {"containBlur", "containBlack", "freeBlack"}
+    base_mode = "contain" if mode in contain_modes else "cover"
+    base_w, base_h = fit_size(img.width, img.height, out_w, out_h, base_mode)
+    draw_w = max(1, int(round(base_w * zoom)))
+    draw_h = max(1, int(round(base_h * zoom)))
+    resized = img.resize((draw_w, draw_h), resample=1)
+
+    pan_x = parse_float(slide.get("panX"), 0.0)
+    pan_y = parse_float(slide.get("panY"), 0.0)
+    free_x = max(0, abs(draw_w - out_w) / 2)
+    free_y = max(0, abs(draw_h - out_h) / 2)
+    dx = int(round((out_w - draw_w) / 2 + (pan_x / 100.0) * free_x))
+    dy = int(round((out_h - draw_h) / 2 + (pan_y / 100.0) * free_y))
+    frame.paste(resized, (dx, dy))
+    return frame
+
+
+def render_image_segment(ffmpeg, slide, index, assets_dir, temp_dir, out_w, out_h, fps, pil_modules):
+    Image, _ImageFilter, _ImageEnhance, ImageOps = pil_modules
+    src = assets_dir / slide["asset"]
+    duration = max(0.1, parse_float(slide.get("duration"), 4.0))
+    frames = max(1, int(round(duration * fps)))
+    frames_dir = temp_dir / f"frames_{index:03d}"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    img = Image.open(src)
+    img = ImageOps.exif_transpose(img).convert("RGB")
+
+    print(f"Rendering photo {index + 1}: {slide.get('name', src.name)} ({frames} frames)")
+    for i in range(frames):
+        frame = draw_image_frame(img, slide, i, frames, out_w, out_h, pil_modules)
+        frame.save(frames_dir / f"{i:06d}.jpg", quality=94, optimize=False)
+        if i and i % max(1, fps * 5) == 0:
+            print(f"  {i}/{frames} frames")
+
+    segment = temp_dir / f"segment_{index:03d}.mp4"
+    run([
+        ffmpeg, "-y",
+        "-framerate", str(fps),
+        "-i", frames_dir / "%06d.jpg",
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-r", str(fps),
+        "-preset", "medium",
+        "-crf", "18",
+        "-movflags", "+faststart",
+        segment,
+    ])
+    return segment
+
+
+def video_filter(slide, out_w, out_h, fps):
+    mode = slide.get("backgroundMode") or "cover"
+    duration = max(0.1, parse_float(slide.get("duration"), parse_float(slide.get("originalDuration"), 1.0)))
+    original = max(0.1, parse_float(slide.get("originalDuration"), duration))
+    speed = duration / original
+    prefix = f"setpts={speed:.8f}*PTS"
+    if mode == "containBlur":
+        return (
+            f"{prefix},split=2[v0][v1];"
+            f"[v0]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
+            f"crop={out_w}:{out_h},gblur=sigma=28,eq=brightness=-0.08:saturation=1.15[bg];"
+            f"[v1]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease[fg];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2,fps={fps},format=yuv420p[v]"
+        ), True
+    if mode in {"containBlack", "freeBlack"}:
+        return (
+            f"{prefix},scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,"
+            f"pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:color=black,"
+            f"fps={fps},format=yuv420p"
+        ), False
+    return (
+        f"{prefix},scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
+        f"crop={out_w}:{out_h},fps={fps},format=yuv420p"
+    ), False
+
+
+def render_video_segment(ffmpeg, slide, index, assets_dir, temp_dir, out_w, out_h, fps):
+    src = assets_dir / slide["asset"]
+    duration = max(0.1, parse_float(slide.get("duration"), parse_float(slide.get("originalDuration"), 1.0)))
+    segment = temp_dir / f"segment_{index:03d}.mp4"
+    filt, complex_filter = video_filter(slide, out_w, out_h, fps)
+    print(f"Rendering video {index + 1}: {slide.get('name', src.name)}")
+    if complex_filter:
+        cmd = [
+            ffmpeg, "-y",
+            "-i", src,
+            "-filter_complex", filt,
+            "-map", "[v]",
+            "-an",
+            "-t", f"{duration:.3f}",
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-r", str(fps),
+            "-preset", "medium",
+            "-crf", "18",
+            "-movflags", "+faststart",
+            segment,
+        ]
+    else:
+        cmd = [
+            ffmpeg, "-y",
+            "-i", src,
+            "-vf", filt,
+            "-an",
+            "-t", f"{duration:.3f}",
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-r", str(fps),
+            "-preset", "medium",
+            "-crf", "18",
+            "-movflags", "+faststart",
+            segment,
+        ]
+    run(cmd)
+    return segment
+
+
+def concat_segments(ffmpeg, segments, temp_dir):
+    list_file = temp_dir / "concat.txt"
+    with list_file.open("w", encoding="utf-8") as f:
+        for segment in segments:
+            safe = str(segment.resolve()).replace("'", "'\\''")
+            f.write(f"file '{safe}'\n")
+    video_only = temp_dir / "video_no_audio.mp4"
+    run([ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", list_file, "-c", "copy", video_only])
+    return video_only
+
+
+def add_audio(ffmpeg, video_only, project, assets_dir, output_path):
+    total = sum(max(0.1, parse_float(s.get("duration"), 1.0)) for s in project.get("slides", []))
+    audio = project.get("audio")
+    if audio and audio.get("asset"):
+        audio_path = assets_dir / audio["asset"]
+        run([
+            ffmpeg, "-y",
+            "-i", video_only,
+            "-i", audio_path,
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-t", f"{total:.3f}",
+            "-movflags", "+faststart",
+            output_path,
+        ])
+    else:
+        run([ffmpeg, "-y", "-i", video_only, "-c", "copy", "-movflags", "+faststart", output_path])
+
+
+def main():
+    root = Path(__file__).resolve().parent
+    project_path = root / "project.json"
+    if not project_path.exists():
+        print("project.json not found. Keep this script in the same folder as project.json.")
+        sys.exit(1)
+    ffmpeg = find_ffmpeg()
+    pil_modules = ensure_pillow()
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    assets_dir = root / "assets"
+    output_dir = root / "output"
+    output_dir.mkdir(exist_ok=True)
+
+    settings = project.get("settings", {})
+    out_w = int(settings.get("width") or 1920)
+    out_h = int(settings.get("height") or 1080)
+    fps = int(settings.get("fps") or 30)
+    output_name = settings.get("outputName") or "slideshow.mp4"
+    output_path = output_dir / output_name
+
+    if not project.get("slides"):
+        print("No slides in project.json")
+        sys.exit(1)
+
+    with tempfile.TemporaryDirectory(prefix="slideshow_render_") as tmp_name:
+        temp_dir = Path(tmp_name)
+        segments = []
+        for index, slide in enumerate(project.get("slides", [])):
+            if slide.get("type") == "video":
+                segment = render_video_segment(ffmpeg, slide, index, assets_dir, temp_dir, out_w, out_h, fps)
+            else:
+                segment = render_image_segment(ffmpeg, slide, index, assets_dir, temp_dir, out_w, out_h, fps, pil_modules)
+            segments.append(segment)
+        video_only = concat_segments(ffmpeg, segments, temp_dir)
+        add_audio(ffmpeg, video_only, project, assets_dir, output_path)
+
+    print("\nDONE:")
+    print(output_path)
+    print("\nThis is MP4 / H.264 / AAC and should seek normally in players and on TV.")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except subprocess.CalledProcessError as exc:
+        print("\nFFmpeg command failed.")
+        print(exc)
+        sys.exit(exc.returncode or 1)
+</script>
+  <script id="mp4RunBat" type="text/plain">@echo off
+cd /d "%~dp0"
+echo Rendering final MP4 with FFmpeg...
+echo.
+py -3 render_mp4.py
+if errorlevel 1 (
+  echo.
+  echo Trying with python instead of py...
+  python render_mp4.py
+)
+echo.
+pause
+</script>
+  <script id="mp4InstallBat" type="text/plain">@echo off
+echo Installing FFmpeg with winget...
+winget install --id Gyan.FFmpeg -e
+echo.
+echo If installation succeeded, close this window and run run_mp4_render.bat again.
+pause
+</script>
+  <script id="mp4Readme" type="text/plain">MP4 render package for Family Slideshow Maker
+
+What this package is:
+- This is the reliable final export path.
+- The web app remains the editor.
+- This local renderer creates MP4 / H.264 / AAC with normal seeking and full video durations.
+
+How to render on Windows:
+1. Unzip this whole package.
+2. Make sure Python 3 is installed.
+3. Make sure FFmpeg is installed and available in PATH.
+   If not, run install_ffmpeg_windows.bat, or install manually:
+   winget install --id Gyan.FFmpeg -e
+4. Double-click run_mp4_render.bat.
+5. The final video will appear in the output folder.
+
+Notes:
+- Photos are rendered locally with the same basic crop/zoom/blur-background settings from the web editor.
+- Video clips are rendered by FFmpeg, so they should keep their real duration and normal playback.
+- Video clip audio is ignored; the selected music track is used as the slideshow audio.
+- Nothing is uploaded to any server.
+</script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
