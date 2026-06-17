@@ -152,3 +152,73 @@ canvas { display: block; width: 100%; height: auto; max-height: 68vh; background
   .media-panel { position: static; }
   .slide-list { max-height: 48vh; }
 }
+
+/* v6: keyframe editing + clearer dropdowns */
+.canvas-wrap { cursor: grab; user-select: none; }
+.canvas-wrap:active { cursor: grabbing; }
+.canvas-hint {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 999px;
+  background: rgba(7, 10, 18, .70);
+  color: rgba(245,247,255,.76);
+  font-size: 12px;
+  backdrop-filter: blur(14px);
+  pointer-events: none;
+}
+.keyframe-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255,255,255,.045);
+}
+.keyframe-switch span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+.keyframe-switch .ghost {
+  padding: 8px 11px;
+  font-size: 12px;
+}
+.keyframe-switch .ghost.active {
+  color: #071018;
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  border-color: transparent;
+}
+.keyframe-switch small {
+  flex-basis: 100%;
+  color: var(--muted-2);
+  line-height: 1.35;
+}
+select,
+.export-options select,
+.controls-grid select,
+.custom-size input {
+  background-color: #151a27;
+  color: #f8fbff;
+  border-color: rgba(255,255,255,.22);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 10px 30px rgba(0,0,0,.18);
+}
+select {
+  color-scheme: dark;
+  font-weight: 750;
+}
+select option {
+  background: #111827;
+  color: #f8fbff;
+}
+.export-options label, .controls-grid label, .custom-size label {
+  color: rgba(245,247,255,.82);
+}
+@media (max-width: 640px) {
+  .canvas-hint { display: none; }
+}

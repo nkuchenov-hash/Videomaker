@@ -112,9 +112,10 @@
             </div>
           </div>
 
-          <div class="canvas-wrap" id="canvasWrap">
+          <div class="canvas-wrap" id="canvasWrap" title="Колесо мыши — зум выбранной точки. Зажатая мышь — сдвиг кадра.">
             <canvas id="previewCanvas" width="960" height="540"></canvas>
             <div class="empty-state" id="emptyState">Здесь появится предпросмотр</div>
+            <div class="canvas-hint">Колесо — зум · Зажатая мышь — сдвиг X/Y</div>
           </div>
 
           <div class="transport">
@@ -142,7 +143,7 @@
           <div class="panel-header horizontal">
             <div>
               <h2>3. Кадрирование и зум</h2>
-              <p>Можно отдалять до 0.25×, чтобы влезал весь контент, или приближать для кинематографичного движения. Для проверки начала/конца выбранного кадра используй ползунок под предпросмотром.</p>
+              <p>Теперь начало и конец кадра можно настраивать отдельно. Колесом мыши зуммируй прямо в окне предпросмотра, зажатой мышью двигай кадр по X/Y.</p>
             </div>
             <button class="ghost" id="resetSlideBtn" type="button">Сбросить кадр</button>
           </div>
@@ -153,12 +154,19 @@
             <button class="secondary" id="softZoomBtn" type="button">Мягкий зум</button>
           </div>
 
+          <div class="keyframe-switch">
+            <span>Редактировать положение:</span>
+            <button class="ghost active" id="editStartFrameBtn" type="button">Начало кадра</button>
+            <button class="ghost" id="editEndFrameBtn" type="button">Конец кадра</button>
+            <small id="editFrameHint">Сейчас меняется начало. Зум/сдвиг конца можно настроить отдельно.</small>
+          </div>
+
           <div class="controls-grid">
-            <label>Сдвиг по X <span id="panXValue">0</span>
-              <input id="panX" type="range" min="-200" max="200" value="0" />
+            <label>Сдвиг X выбранной точки <span id="panXValue">0</span>
+              <input id="panX" type="range" min="-300" max="300" value="0" />
             </label>
-            <label>Сдвиг по Y <span id="panYValue">0</span>
-              <input id="panY" type="range" min="-200" max="200" value="0" />
+            <label>Сдвиг Y выбранной точки <span id="panYValue">0</span>
+              <input id="panY" type="range" min="-300" max="300" value="0" />
             </label>
             <label>Зум в начале <span id="zoomStartValue">1.00×</span>
               <input id="zoomStart" type="range" min="0.25" max="4" step="0.01" value="1" />

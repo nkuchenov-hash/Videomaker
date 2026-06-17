@@ -11,6 +11,7 @@ const state = {
   previewTimeOffset: 0,
   raf: null,
   activeVideoId: null,
+  editKeyframe: 'start',
 };
 
 const $ = (id) => document.getElementById(id);
@@ -30,6 +31,7 @@ const els = {
   saveProjectBtn: $('saveProjectBtn'), loadProjectBtn: $('loadProjectBtn'), deleteSavedProjectBtn: $('deleteSavedProjectBtn'), projectStatus: $('projectStatus'),
   clipScrubberBox: $('clipScrubberBox'), clipScrub: $('clipScrub'), clipScrubLabel: $('clipScrubLabel'),
   clipStartBtn: $('clipStartBtn'), clipMiddleBtn: $('clipMiddleBtn'), clipEndBtn: $('clipEndBtn'),
+  editStartFrameBtn: $('editStartFrameBtn'), editEndFrameBtn: $('editEndFrameBtn'), editFrameHint: $('editFrameHint'),
 };
 const previewCtx = els.previewCanvas.getContext('2d');
 
@@ -54,6 +56,12 @@ function ease(t) {
 
 function lerp(a, b, t) {
   return a + (b - a) * t;
+}
+
+function clamp(value, min, max) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return min;
+  return Math.max(min, Math.min(max, n));
 }
 
 function selectedSlide() {
@@ -158,6 +166,10 @@ async function addFiles(fileList) {
         ...loaded,
         panX: 0,
         panY: 0,
+        panStartX: 0,
+        panStartY: 0,
+        panEndX: 0,
+        panEndY: 0,
         zoomStart: 1,
         zoomEnd: loaded.type === 'video' ? 1 : 1.08,
         duration: loaded.type === 'video' ? loaded.originalDuration : 4,
@@ -399,26 +411,105 @@ function timeAtSlide(index) {
 function syncControls() {
   const slide = selectedSlide();
   const disabled = !slide;
-  [els.panX, els.panY, els.zoomStart, els.zoomEnd, els.duration, els.backgroundMode, els.resetSlideBtn, els.fitWholeBtn, els.coverBtn, els.softZoomBtn].forEach((el) => { el.disabled = disabled; });
+  [els.panX, els.panY, els.zoomStart, els.zoomEnd, els.duration, els.backgroundMode, els.resetSlideBtn, els.fitWholeBtn, els.coverBtn, els.softZoomBtn, els.editStartFrameBtn, els.editEndFrameBtn].forEach((el) => { if (el) el.disabled = disabled; });
   if (!slide) {
+    updateKeyframeUi();
     updateControlLabels();
     return;
   }
-  els.panX.value = slide.panX;
-  els.panY.value = slide.panY;
+  ensureSlideKeyframes(slide);
+  els.panX.value = getActivePanX(slide);
+  els.panY.value = getActivePanY(slide);
   els.zoomStart.value = slide.zoomStart;
   els.zoomEnd.value = slide.zoomEnd;
   els.duration.max = Math.max(60, Math.ceil(slide.duration * 2), Math.ceil((slide.originalDuration || 4) * 2));
   els.duration.value = Math.max(0.5, Math.min(Number(els.duration.max), slide.duration));
   els.backgroundMode.value = slide.backgroundMode || 'cover';
   els.videoHint.style.display = slide.type === 'video' ? 'block' : 'none';
+  updateKeyframeUi();
   updateControlLabels();
+}
+
+function ensureSlideKeyframes(slide) {
+  if (!slide) return;
+  const legacyX = Number.isFinite(Number(slide.panX)) ? Number(slide.panX) : 0;
+  const legacyY = Number.isFinite(Number(slide.panY)) ? Number(slide.panY) : 0;
+  if (!Number.isFinite(Number(slide.panStartX))) slide.panStartX = legacyX;
+  if (!Number.isFinite(Number(slide.panStartY))) slide.panStartY = legacyY;
+  if (!Number.isFinite(Number(slide.panEndX))) slide.panEndX = legacyX;
+  if (!Number.isFinite(Number(slide.panEndY))) slide.panEndY = legacyY;
+  slide.panStartX = clamp(slide.panStartX, -300, 300);
+  slide.panStartY = clamp(slide.panStartY, -300, 300);
+  slide.panEndX = clamp(slide.panEndX, -300, 300);
+  slide.panEndY = clamp(slide.panEndY, -300, 300);
+  slide.panX = getActivePanX(slide);
+  slide.panY = getActivePanY(slide);
+}
+
+function getActivePanX(slide) {
+  return state.editKeyframe === 'end' ? Number(slide.panEndX || 0) : Number(slide.panStartX || 0);
+}
+
+function getActivePanY(slide) {
+  return state.editKeyframe === 'end' ? Number(slide.panEndY || 0) : Number(slide.panStartY || 0);
+}
+
+function setActivePan(slide, x, y) {
+  ensureSlideKeyframes(slide);
+  const safeX = clamp(x, -300, 300);
+  const safeY = clamp(y, -300, 300);
+  if (state.editKeyframe === 'end') {
+    slide.panEndX = safeX;
+    slide.panEndY = safeY;
+  } else {
+    slide.panStartX = safeX;
+    slide.panStartY = safeY;
+  }
+  slide.panX = safeX;
+  slide.panY = safeY;
+}
+
+function getActiveZoom(slide) {
+  return state.editKeyframe === 'end' ? Number(slide.zoomEnd || 1) : Number(slide.zoomStart || 1);
+}
+
+function setActiveZoom(slide, value) {
+  const safe = clamp(value, 0.25, 4);
+  if (state.editKeyframe === 'end') slide.zoomEnd = safe;
+  else slide.zoomStart = safe;
+}
+
+function updateKeyframeUi() {
+  const isEnd = state.editKeyframe === 'end';
+  els.editStartFrameBtn?.classList.toggle('active', !isEnd);
+  els.editEndFrameBtn?.classList.toggle('active', isEnd);
+  if (els.editFrameHint) {
+    els.editFrameHint.textContent = isEnd
+      ? 'Сейчас меняется конец кадра: колесо/мышь/сдвиг относятся к финальной точке.'
+      : 'Сейчас меняется начало кадра: колесо/мышь/сдвиг относятся к стартовой точке.';
+  }
+}
+
+function setEditKeyframe(key, movePreview = true) {
+  state.editKeyframe = key === 'end' ? 'end' : 'start';
+  updateKeyframeUi();
+  if (movePreview) {
+    setSelectedSlideProgress(state.editKeyframe === 'end' ? 0.999 : 0);
+  }
+  syncControls();
+  drawCurrentPreview();
+}
+
+function editKeyframeByCurrentPreview() {
+  const key = selectedSlideProgress() >= 0.5 ? 'end' : 'start';
+  setEditKeyframe(key, true);
 }
 
 function updateControlLabels() {
   const slide = selectedSlide();
-  els.panXValue.textContent = slide ? slide.panX : '0';
-  els.panYValue.textContent = slide ? slide.panY : '0';
+  if (slide) ensureSlideKeyframes(slide);
+  els.panXValue.textContent = slide ? Math.round(getActivePanX(slide)) : '0';
+  els.panYValue.textContent = slide ? Math.round(getActivePanY(slide)) : '0';
   els.zoomStartValue.textContent = slide ? `${Number(slide.zoomStart).toFixed(2)}×` : '1.00×';
   els.zoomEndValue.textContent = slide ? `${Number(slide.zoomEnd).toFixed(2)}×` : '1.08×';
   els.durationValue.textContent = slide ? `${Number(slide.duration).toFixed(1)} сек.` : '—';
@@ -478,15 +569,29 @@ function setSelectedSlideProgress(progress) {
 function applyControlChange() {
   const slide = selectedSlide();
   if (!slide) return;
-  slide.panX = Number(els.panX.value);
-  slide.panY = Number(els.panY.value);
-  slide.zoomStart = Number(els.zoomStart.value);
-  slide.zoomEnd = Number(els.zoomEnd.value);
+  ensureSlideKeyframes(slide);
+  setActivePan(slide, Number(els.panX.value), Number(els.panY.value));
   slide.duration = Number(els.duration.value);
   slide.backgroundMode = els.backgroundMode.value;
   updateControlLabels();
   renderStats();
   drawCurrentPreview();
+  renderSlideList();
+}
+
+function applyZoomControlChange(key) {
+  const slide = selectedSlide();
+  if (!slide) return;
+  ensureSlideKeyframes(slide);
+  if (key === 'end') {
+    slide.zoomEnd = clamp(els.zoomEnd.value, 0.25, 4);
+    setEditKeyframe('end', true);
+  } else {
+    slide.zoomStart = clamp(els.zoomStart.value, 0.25, 4);
+    setEditKeyframe('start', true);
+  }
+  updateControlLabels();
+  renderStats();
   renderSlideList();
 }
 
@@ -570,14 +675,17 @@ function drawSlide(ctx, slide, rawProgress, width, height) {
   if (slide.backgroundMode === 'cover') baseScale = Math.max(width / sourceWidth, height / sourceHeight);
   else baseScale = Math.min(width / sourceWidth, height / sourceHeight);
 
+  ensureSlideKeyframes(slide);
   const zoom = lerp(slide.zoomStart, slide.zoomEnd, progress);
+  const panX = lerp(Number(slide.panStartX || 0), Number(slide.panEndX || 0), progress);
+  const panY = lerp(Number(slide.panStartY || 0), Number(slide.panEndY || 0), progress);
   const scale = baseScale * zoom;
   const drawW = sourceWidth * scale;
   const drawH = sourceHeight * scale;
   const freeX = Math.max(0, Math.abs(drawW - width) / 2);
   const freeY = Math.max(0, Math.abs(drawH - height) / 2);
-  const offsetX = (slide.panX / 100) * freeX;
-  const offsetY = (slide.panY / 100) * freeY;
+  const offsetX = (panX / 100) * freeX;
+  const offsetY = (panY / 100) * freeY;
   const dx = (width - drawW) / 2 + offsetX;
   const dy = (height - drawH) / 2 + offsetY;
   ctx.imageSmoothingEnabled = true;
@@ -765,6 +873,10 @@ function makeProjectSnapshot() {
       type: slide.type,
       panX: slide.panX,
       panY: slide.panY,
+      panStartX: slide.panStartX,
+      panStartY: slide.panStartY,
+      panEndX: slide.panEndX,
+      panEndY: slide.panEndY,
       zoomStart: slide.zoomStart,
       zoomEnd: slide.zoomEnd,
       duration: slide.duration,
@@ -842,6 +954,10 @@ async function loadProjectFromBrowser() {
           ...loaded,
           panX: Number(item.panX || 0),
           panY: Number(item.panY || 0),
+          panStartX: Number(item.panStartX ?? item.panX ?? 0),
+          panStartY: Number(item.panStartY ?? item.panY ?? 0),
+          panEndX: Number(item.panEndX ?? item.panX ?? 0),
+          panEndY: Number(item.panEndY ?? item.panY ?? 0),
           zoomStart: Number(item.zoomStart ?? 1),
           zoomEnd: Number(item.zoomEnd ?? (loaded.type === 'video' ? 1 : 1.08)),
           duration: Number(item.duration || loaded.originalDuration || 4),
@@ -1118,6 +1234,92 @@ async function exportVideo() {
   setExportStatus('Готово. WebM скачан с исправленной длительностью для перемотки.', 100);
 }
 
+function keyframeDrawMetrics(slide, width, height, key = state.editKeyframe) {
+  if (!slide || !slide.source) return { freeX: width / 2, freeY: height / 2 };
+  const source = slide.source;
+  const sourceWidth = slide.type === 'video' ? (source.videoWidth || slide.width) : slide.width;
+  const sourceHeight = slide.type === 'video' ? (source.videoHeight || slide.height) : slide.height;
+  let baseScale;
+  if (slide.backgroundMode === 'cover') baseScale = Math.max(width / sourceWidth, height / sourceHeight);
+  else baseScale = Math.min(width / sourceWidth, height / sourceHeight);
+  const zoom = key === 'end' ? Number(slide.zoomEnd || 1) : Number(slide.zoomStart || 1);
+  const drawW = sourceWidth * baseScale * zoom;
+  const drawH = sourceHeight * baseScale * zoom;
+  return {
+    freeX: Math.max(1, Math.abs(drawW - width) / 2),
+    freeY: Math.max(1, Math.abs(drawH - height) / 2),
+  };
+}
+
+function chooseKeyframeFromVisibleMoment() {
+  const key = selectedSlideProgress() >= 0.5 ? 'end' : 'start';
+  if (state.editKeyframe !== key) setEditKeyframe(key, true);
+  return key;
+}
+
+let canvasDrag = null;
+
+function adjustActivePanByCanvasDelta(dxCanvas, dyCanvas) {
+  const slide = selectedSlide();
+  if (!slide) return;
+  ensureSlideKeyframes(slide);
+  const { freeX, freeY } = keyframeDrawMetrics(slide, els.previewCanvas.width, els.previewCanvas.height, state.editKeyframe);
+  const nextX = getActivePanX(slide) + (dxCanvas / freeX) * 100;
+  const nextY = getActivePanY(slide) + (dyCanvas / freeY) * 100;
+  setActivePan(slide, nextX, nextY);
+  syncControls();
+  drawCurrentPreview();
+}
+
+els.previewCanvas.addEventListener('wheel', (event) => {
+  const slide = selectedSlide();
+  if (!slide) return;
+  event.preventDefault();
+  stopPreview(false);
+  chooseKeyframeFromVisibleMoment();
+  ensureSlideKeyframes(slide);
+  const factor = event.deltaY < 0 ? 1.045 : 0.957;
+  setActiveZoom(slide, getActiveZoom(slide) * factor);
+  syncControls();
+  drawCurrentPreview();
+}, { passive: false });
+
+els.previewCanvas.addEventListener('pointerdown', (event) => {
+  const slide = selectedSlide();
+  if (!slide) return;
+  event.preventDefault();
+  stopPreview(false);
+  chooseKeyframeFromVisibleMoment();
+  const rect = els.previewCanvas.getBoundingClientRect();
+  canvasDrag = {
+    lastX: event.clientX,
+    lastY: event.clientY,
+    scaleX: els.previewCanvas.width / Math.max(1, rect.width),
+    scaleY: els.previewCanvas.height / Math.max(1, rect.height),
+  };
+  els.previewCanvas.setPointerCapture?.(event.pointerId);
+});
+
+els.previewCanvas.addEventListener('pointermove', (event) => {
+  if (!canvasDrag) return;
+  event.preventDefault();
+  const dx = (event.clientX - canvasDrag.lastX) * canvasDrag.scaleX;
+  const dy = (event.clientY - canvasDrag.lastY) * canvasDrag.scaleY;
+  canvasDrag.lastX = event.clientX;
+  canvasDrag.lastY = event.clientY;
+  adjustActivePanByCanvasDelta(dx, dy);
+});
+
+function finishCanvasDrag(event) {
+  if (!canvasDrag) return;
+  canvasDrag = null;
+  try { if (event?.pointerId !== undefined) els.previewCanvas.releasePointerCapture?.(event.pointerId); } catch (_) {}
+}
+
+els.previewCanvas.addEventListener('pointerup', finishCanvasDrag);
+els.previewCanvas.addEventListener('pointercancel', finishCanvasDrag);
+els.previewCanvas.addEventListener('pointerleave', finishCanvasDrag);
+
 els.mediaInput.addEventListener('change', (event) => addFiles(event.target.files));
 els.dropzone.addEventListener('dragover', (event) => { event.preventDefault(); els.dropzone.classList.add('dragover'); });
 els.dropzone.addEventListener('dragleave', () => els.dropzone.classList.remove('dragover'));
@@ -1142,16 +1344,25 @@ renderSelectionState();
   };
 });
 
-[els.panX, els.panY, els.zoomStart, els.zoomEnd, els.duration, els.backgroundMode].forEach((el) => {
+[els.panX, els.panY, els.duration, els.backgroundMode].forEach((el) => {
   el.addEventListener('input', applyControlChange);
   el.addEventListener('change', applyControlChange);
 });
+
+els.zoomStart.addEventListener('input', () => applyZoomControlChange('start'));
+els.zoomStart.addEventListener('change', () => applyZoomControlChange('start'));
+els.zoomEnd.addEventListener('input', () => applyZoomControlChange('end'));
+els.zoomEnd.addEventListener('change', () => applyZoomControlChange('end'));
 
 els.resetSlideBtn.addEventListener('click', () => {
   const slide = selectedSlide();
   if (!slide) return;
   slide.panX = 0;
   slide.panY = 0;
+  slide.panStartX = 0;
+  slide.panStartY = 0;
+  slide.panEndX = 0;
+  slide.panEndY = 0;
   slide.zoomStart = 1;
   slide.zoomEnd = slide.type === 'video' ? 1 : 1.08;
   slide.backgroundMode = 'cover';
@@ -1164,6 +1375,10 @@ els.fitWholeBtn.addEventListener('click', () => {
   if (!slide) return;
   slide.panX = 0;
   slide.panY = 0;
+  slide.panStartX = 0;
+  slide.panStartY = 0;
+  slide.panEndX = 0;
+  slide.panEndY = 0;
   slide.zoomStart = 1;
   slide.zoomEnd = 1;
   slide.backgroundMode = 'containBlur';
@@ -1204,9 +1419,11 @@ renderSelectionState();
 els.playBtn.addEventListener('click', () => state.playing ? stopPreview(false) : startPreview());
 els.stopBtn.addEventListener('click', () => stopPreview(true));
 els.clipScrub?.addEventListener('input', () => setSelectedSlideProgress(Number(els.clipScrub.value) / 1000));
-els.clipStartBtn?.addEventListener('click', () => setSelectedSlideProgress(0));
+els.clipStartBtn?.addEventListener('click', () => setEditKeyframe('start', true));
 els.clipMiddleBtn?.addEventListener('click', () => setSelectedSlideProgress(0.5));
-els.clipEndBtn?.addEventListener('click', () => setSelectedSlideProgress(0.999));
+els.clipEndBtn?.addEventListener('click', () => setEditKeyframe('end', true));
+els.editStartFrameBtn?.addEventListener('click', () => setEditKeyframe('start', true));
+els.editEndFrameBtn?.addEventListener('click', () => setEditKeyframe('end', true));
 els.exportBtn.addEventListener('click', exportVideo);
 els.selectAllBtn?.addEventListener('click', selectAllOrNone);
 els.deleteSelectedBtn?.addEventListener('click', deleteSelectedSlides);
