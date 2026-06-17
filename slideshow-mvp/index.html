@@ -12,11 +12,11 @@
       <div>
         <p class="eyebrow">Локальное веб-приложение</p>
         <h1>Family Slideshow Maker</h1>
-        <p class="subtitle">Фото + музыка → горизонтальное 16:9 слайдшоу с ручным кадрированием и мягким зумом.</p>
+        <p class="subtitle">Фото + видео + музыка → слайдшоу с ручным кадрированием, форматами 16:9 / 4:3 / 1:1 / вертикальный и мягким зумом.</p>
       </div>
       <div class="privacy-card">
         <strong>Файлы не загружаются на сервер</strong>
-        <span>Всё работает прямо в браузере. Для GitHub Pages сервер не нужен.</span>
+        <span>Всё работает прямо в браузере. GitHub Pages нужен только чтобы открыть страницу.</span>
       </div>
     </header>
 
@@ -25,15 +25,15 @@
         <div class="panel-header">
           <div>
             <h2>1. Загрузка</h2>
-            <p>Добавь фото и музыку. Порядок можно поправить стрелками.</p>
+            <p>Добавь фото, видео и музыку. Порядок можно менять стрелками или перетаскиванием.</p>
           </div>
         </div>
 
         <label class="dropzone" id="dropzone">
-          <input id="photoInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple />
+          <input id="mediaInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime,video/*" multiple />
           <span class="drop-icon">＋</span>
-          <strong>Выбрать или перетащить фото</strong>
-          <small>JPG / PNG / WebP. Для телевизора лучше горизонтальный итог 16:9.</small>
+          <strong>Выбрать или перетащить фото/видео</strong>
+          <small>JPG / PNG / WebP / MP4 / MOV / WebM. Звук видео в MVP отключается, используется выбранная музыка.</small>
         </label>
 
         <label class="audio-picker">
@@ -42,15 +42,16 @@
         </label>
 
         <div class="stats-grid">
-          <div><span>Фото</span><strong id="photoCount">0</strong></div>
+          <div><span>Медиа</span><strong id="mediaCount">0</strong></div>
           <div><span>Музыка</span><strong id="audioDuration">—</strong></div>
-          <div><span>Слайд</span><strong id="slideDuration">—</strong></div>
+          <div><span>Итог</span><strong id="totalDuration">—</strong></div>
         </div>
 
         <button class="secondary full" id="fitToMusicBtn" type="button">Подогнать фото под длину музыки</button>
+        <p class="hint">Видео сохраняют свою длительность. Оставшееся время музыки распределяется между фото.</p>
 
         <div class="timeline-header">
-          <h3>Порядок фото</h3>
+          <h3>Порядок кадров</h3>
           <button class="ghost" id="clearBtn" type="button">Очистить</button>
         </div>
         <div class="slide-list" id="slideList"></div>
@@ -60,15 +61,21 @@
         <section class="panel preview-panel">
           <div class="panel-header horizontal">
             <div>
-              <h2>2. Предпросмотр</h2>
-              <p id="currentInfo">Загрузи фото, затем выбери кадр.</p>
+              <h2>2. Формат и предпросмотр</h2>
+              <p id="currentInfo">Загрузи фото/видео, затем выбери кадр.</p>
             </div>
             <div class="export-options">
               <label>
-                Размер
-                <select id="resolutionSelect">
-                  <option value="1280x720">1280×720</option>
-                  <option value="1920x1080" selected>1920×1080</option>
+                Формат
+                <select id="formatSelect">
+                  <option value="1920x1080" selected>16:9 · 1920×1080</option>
+                  <option value="1280x720">16:9 · 1280×720</option>
+                  <option value="1440x1080">4:3 · 1440×1080</option>
+                  <option value="1024x768">4:3 · 1024×768</option>
+                  <option value="1080x1080">1:1 · 1080×1080</option>
+                  <option value="1080x1920">9:16 · 1080×1920</option>
+                  <option value="1920x1440">4:3 · 1920×1440</option>
+                  <option value="custom">Свой размер</option>
                 </select>
               </label>
               <label>
@@ -78,12 +85,16 @@
                   <option value="30" selected>30</option>
                 </select>
               </label>
+              <div class="custom-size" id="customSizeBox">
+                <label>W <input id="customWidth" type="number" min="320" max="3840" step="2" value="1920" /></label>
+                <label>H <input id="customHeight" type="number" min="240" max="3840" step="2" value="1080" /></label>
+              </div>
             </div>
           </div>
 
-          <div class="canvas-wrap">
+          <div class="canvas-wrap" id="canvasWrap">
             <canvas id="previewCanvas" width="960" height="540"></canvas>
-            <div class="empty-state" id="emptyState">Здесь появится 16:9 предпросмотр</div>
+            <div class="empty-state" id="emptyState">Здесь появится предпросмотр</div>
           </div>
 
           <div class="transport">
@@ -98,40 +109,49 @@
           <div class="panel-header horizontal">
             <div>
               <h2>3. Кадрирование и зум</h2>
-              <p>Выбери фото слева и настрой, что попадёт в горизонтальный кадр.</p>
+              <p>Можно отдалять до 0.25×, чтобы влезал весь контент, или приближать для кинематографичного движения.</p>
             </div>
             <button class="ghost" id="resetSlideBtn" type="button">Сбросить кадр</button>
           </div>
 
+          <div class="quick-actions">
+            <button class="secondary" id="fitWholeBtn" type="button">Вписать целиком</button>
+            <button class="secondary" id="coverBtn" type="button">Заполнить кадр</button>
+            <button class="secondary" id="softZoomBtn" type="button">Мягкий зум</button>
+          </div>
+
           <div class="controls-grid">
             <label>Сдвиг по X <span id="panXValue">0</span>
-              <input id="panX" type="range" min="-100" max="100" value="0" />
+              <input id="panX" type="range" min="-200" max="200" value="0" />
             </label>
             <label>Сдвиг по Y <span id="panYValue">0</span>
-              <input id="panY" type="range" min="-100" max="100" value="0" />
+              <input id="panY" type="range" min="-200" max="200" value="0" />
             </label>
             <label>Зум в начале <span id="zoomStartValue">1.00×</span>
-              <input id="zoomStart" type="range" min="1" max="2.5" step="0.01" value="1" />
+              <input id="zoomStart" type="range" min="0.25" max="4" step="0.01" value="1" />
             </label>
             <label>Зум в конце <span id="zoomEndValue">1.08×</span>
-              <input id="zoomEnd" type="range" min="1" max="2.5" step="0.01" value="1.08" />
+              <input id="zoomEnd" type="range" min="0.25" max="4" step="0.01" value="1.08" />
             </label>
-            <label>Длительность фото, сек. <span id="durationValue">—</span>
-              <input id="duration" type="range" min="1" max="15" step="0.1" value="4" />
+            <label>Длительность, сек. <span id="durationValue">—</span>
+              <input id="duration" type="range" min="0.5" max="60" step="0.1" value="4" />
             </label>
-            <label>Фон, если есть поля
+            <label>Режим кадра
               <select id="backgroundMode">
                 <option value="cover" selected>Заполнить кадр</option>
                 <option value="containBlur">Вписать + размытый фон</option>
+                <option value="containBlack">Вписать + чёрный фон</option>
+                <option value="freeBlack">Свободный зум + чёрный фон</option>
               </select>
             </label>
           </div>
+          <p class="hint" id="videoHint">Для видео длительность можно менять, но его звук в веб-MVP не смешивается — используется музыка.</p>
         </section>
 
         <section class="panel export-panel">
           <div>
             <h2>4. Экспорт</h2>
-            <p>Быстрый веб-MVP экспортирует WebM. Для MP4/H.264 лучше потом добавить локальный FFmpeg-экспорт.</p>
+            <p>Веб-MVP экспортирует WebM. Для MP4/H.264 под телевизор потом лучше добавить локальный FFmpeg-экспорт.</p>
           </div>
           <button id="exportBtn" class="primary export" type="button">Скачать видео WebM</button>
           <div class="export-status">

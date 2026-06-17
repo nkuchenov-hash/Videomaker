@@ -8,19 +8,21 @@ const state = {
   playStartedAt: 0,
   previewTimeOffset: 0,
   raf: null,
+  activeVideoId: null,
 };
 
 const $ = (id) => document.getElementById(id);
 const els = {
-  photoInput: $('photoInput'), audioInput: $('audioInput'), dropzone: $('dropzone'),
-  photoCount: $('photoCount'), audioDuration: $('audioDuration'), slideDuration: $('slideDuration'),
+  mediaInput: $('mediaInput'), audioInput: $('audioInput'), dropzone: $('dropzone'),
+  mediaCount: $('mediaCount'), audioDuration: $('audioDuration'), totalDuration: $('totalDuration'),
   fitToMusicBtn: $('fitToMusicBtn'), clearBtn: $('clearBtn'), slideList: $('slideList'),
-  previewCanvas: $('previewCanvas'), emptyState: $('emptyState'), currentInfo: $('currentInfo'),
+  previewCanvas: $('previewCanvas'), canvasWrap: $('canvasWrap'), emptyState: $('emptyState'), currentInfo: $('currentInfo'),
   playBtn: $('playBtn'), stopBtn: $('stopBtn'), previewProgress: $('previewProgress'), timeLabel: $('timeLabel'),
   panX: $('panX'), panY: $('panY'), zoomStart: $('zoomStart'), zoomEnd: $('zoomEnd'), duration: $('duration'),
   panXValue: $('panXValue'), panYValue: $('panYValue'), zoomStartValue: $('zoomStartValue'), zoomEndValue: $('zoomEndValue'), durationValue: $('durationValue'),
   backgroundMode: $('backgroundMode'), resetSlideBtn: $('resetSlideBtn'),
-  resolutionSelect: $('resolutionSelect'), fpsSelect: $('fpsSelect'), exportBtn: $('exportBtn'),
+  fitWholeBtn: $('fitWholeBtn'), coverBtn: $('coverBtn'), softZoomBtn: $('softZoomBtn'), videoHint: $('videoHint'),
+  formatSelect: $('formatSelect'), customSizeBox: $('customSizeBox'), customWidth: $('customWidth'), customHeight: $('customHeight'), fpsSelect: $('fpsSelect'), exportBtn: $('exportBtn'),
   exportProgress: $('exportProgress'), exportStatusText: $('exportStatusText'), audioPreview: $('audioPreview'),
 };
 const previewCtx = els.previewCanvas.getContext('2d');
@@ -52,57 +54,148 @@ function selectedSlide() {
   return state.slides[state.selectedIndex] || null;
 }
 
+function waitForEvent(target, eventName, timeout = 8000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timeout waiting for ${eventName}`));
+    }, timeout);
+    const onEvent = () => { cleanup(); resolve(); };
+    const onError = () => { cleanup(); reject(new Error(`Cannot load media`)); };
+    const cleanup = () => {
+      clearTimeout(timer);
+      target.removeEventListener(eventName, onEvent);
+      target.removeEventListener('error', onError);
+    };
+    target.addEventListener(eventName, onEvent, { once: true });
+    target.addEventListener('error', onError, { once: true });
+  });
+}
+
 async function loadImageFromFile(file) {
   const url = URL.createObjectURL(file);
   const img = new Image();
   img.decoding = 'async';
   img.src = url;
-  await img.decode();
-  return { img, url };
+  try {
+    await img.decode();
+  } catch (_) {
+    if (!img.complete) await waitForEvent(img, 'load');
+  }
+  return {
+    type: 'image',
+    source: img,
+    url,
+    thumbUrl: url,
+    width: img.naturalWidth,
+    height: img.naturalHeight,
+    originalDuration: 4,
+  };
+}
+
+async function loadVideoFromFile(file) {
+  const url = URL.createObjectURL(file);
+  const video = document.createElement('video');
+  video.src = url;
+  video.preload = 'auto';
+  video.muted = true;
+  video.playsInline = true;
+  video.crossOrigin = 'anonymous';
+  await waitForEvent(video, 'loadedmetadata', 12000);
+  const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 5;
+  const width = video.videoWidth || 1920;
+  const height = video.videoHeight || 1080;
+  let thumbUrl = '';
+  try {
+    video.currentTime = Math.min(0.2, Math.max(0, duration - 0.1));
+    await waitForEvent(video, 'seeked', 3000);
+    thumbUrl = makeVideoThumb(video, width, height);
+  } catch (_) {
+    thumbUrl = '';
+  }
+  video.currentTime = 0;
+  return {
+    type: 'video',
+    source: video,
+    url,
+    thumbUrl,
+    width,
+    height,
+    originalDuration: duration,
+  };
+}
+
+function makeVideoThumb(video, width, height) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 320;
+  canvas.height = Math.max(80, Math.round(320 * height / width));
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#101522';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  try {
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  } catch (_) {}
+  return canvas.toDataURL('image/jpeg', 0.78);
 }
 
 async function addFiles(fileList) {
-  const files = [...fileList].filter((file) => file.type.startsWith('image/'));
+  const files = [...fileList].filter((file) => file.type.startsWith('image/') || file.type.startsWith('video/'));
+  if (!files.length) return;
+  setExportStatus(`Загружаю ${files.length} файл(ов)…`, 0);
   for (const file of files) {
     try {
-      const { img, url } = await loadImageFromFile(file);
+      const loaded = file.type.startsWith('video/') ? await loadVideoFromFile(file) : await loadImageFromFile(file);
       state.slides.push({
         id: uid(),
         file,
-        url,
-        image: img,
         name: file.name,
-        width: img.naturalWidth,
-        height: img.naturalHeight,
+        ...loaded,
         panX: 0,
         panY: 0,
         zoomStart: 1,
-        zoomEnd: 1.08,
-        duration: state.audioDuration && state.slides.length >= 0 ? 4 : 4,
+        zoomEnd: loaded.type === 'video' ? 1 : 1.08,
+        duration: loaded.type === 'video' ? loaded.originalDuration : 4,
         backgroundMode: 'cover',
       });
     } catch (error) {
-      console.warn('Cannot load image', file.name, error);
+      console.warn('Cannot load media', file.name, error);
+      setExportStatus(`Не удалось загрузить: ${file.name}`, 0);
     }
   }
   if (state.selectedIndex === -1 && state.slides.length) state.selectedIndex = 0;
   if (state.audioDuration) fitToMusic(false);
+  setExportStatus('Файлы добавлены.', 0);
   renderAll();
 }
 
 function fitToMusic(showMessage = true) {
   if (!state.slides.length || !state.audioDuration) return;
-  const perSlide = Math.max(1, state.audioDuration / state.slides.length);
-  state.slides.forEach((slide) => { slide.duration = perSlide; });
-  if (showMessage) setExportStatus(`Готово: ${formatTime(state.audioDuration)} / ${state.slides.length} фото = ${perSlide.toFixed(1)} сек. на фото`, 0);
+  const photos = state.slides.filter((slide) => slide.type === 'image');
+  const videos = state.slides.filter((slide) => slide.type === 'video');
+  const videoTotal = videos.reduce((sum, slide) => sum + slide.originalDuration, 0);
+
+  if (photos.length && state.audioDuration > videoTotal) {
+    const photoDuration = Math.max(0.5, (state.audioDuration - videoTotal) / photos.length);
+    state.slides.forEach((slide) => {
+      slide.duration = slide.type === 'video' ? slide.originalDuration : photoDuration;
+    });
+    if (showMessage) setExportStatus(`Готово: видео ${formatTime(videoTotal)}, фото по ${photoDuration.toFixed(1)} сек.`, 0);
+  } else {
+    const baseTotal = state.slides.reduce((sum, slide) => sum + (slide.type === 'video' ? slide.originalDuration : 4), 0) || 1;
+    const scale = state.audioDuration / baseTotal;
+    state.slides.forEach((slide) => {
+      const base = slide.type === 'video' ? slide.originalDuration : 4;
+      slide.duration = Math.max(0.5, base * scale);
+    });
+    if (showMessage) setExportStatus('Музыка короче видео/кадров, поэтому всё пропорционально сжато под трек.', 0);
+  }
   renderAll();
 }
 
 function renderStats() {
-  els.photoCount.textContent = state.slides.length;
+  els.mediaCount.textContent = state.slides.length;
   els.audioDuration.textContent = state.audioDuration ? formatTime(state.audioDuration) : '—';
-  const per = state.slides.length ? totalDuration() / state.slides.length : 0;
-  els.slideDuration.textContent = per ? `${per.toFixed(1)} c` : '—';
+  els.totalDuration.textContent = totalDuration() ? formatTime(totalDuration()) : '—';
   els.timeLabel.textContent = `${formatTime(state.previewTimeOffset)} / ${formatTime(totalDuration())}`;
 }
 
@@ -111,7 +204,7 @@ function renderSlideList() {
   if (!state.slides.length) {
     const empty = document.createElement('div');
     empty.className = 'slide-card';
-    empty.textContent = 'Пока нет фото';
+    empty.textContent = 'Пока нет фото/видео';
     els.slideList.appendChild(empty);
     return;
   }
@@ -119,11 +212,15 @@ function renderSlideList() {
     const card = document.createElement('div');
     card.className = `slide-card ${index === state.selectedIndex ? 'selected' : ''}`;
     card.draggable = true;
+    const thumbHtml = slide.thumbUrl
+      ? `<img src="${slide.thumbUrl}" alt="" />`
+      : `<span class="thumb-fallback">${slide.type === 'video' ? '▶' : 'IMG'}</span>`;
+    const kind = slide.type === 'video' ? 'Видео' : 'Фото';
     card.innerHTML = `
-      <img src="${slide.url}" alt="" />
+      ${thumbHtml}
       <span class="slide-title">
         <strong>${index + 1}. ${escapeHtml(slide.name)}</strong>
-        <span>${slide.width}×${slide.height} · ${Number(slide.duration).toFixed(1)} сек.</span>
+        <span>${kind} · ${slide.width}×${slide.height} · ${Number(slide.duration).toFixed(1)} сек.</span>
       </span>
       <span class="slide-actions">
         <button type="button" title="Выше">↑</button>
@@ -165,6 +262,7 @@ function moveSlide(from, to) {
 }
 
 function selectSlide(index) {
+  pauseAllVideos();
   state.selectedIndex = index;
   state.previewTimeOffset = timeAtSlide(index);
   syncControls();
@@ -178,14 +276,19 @@ function timeAtSlide(index) {
 function syncControls() {
   const slide = selectedSlide();
   const disabled = !slide;
-  [els.panX, els.panY, els.zoomStart, els.zoomEnd, els.duration, els.backgroundMode, els.resetSlideBtn].forEach((el) => { el.disabled = disabled; });
-  if (!slide) return;
+  [els.panX, els.panY, els.zoomStart, els.zoomEnd, els.duration, els.backgroundMode, els.resetSlideBtn, els.fitWholeBtn, els.coverBtn, els.softZoomBtn].forEach((el) => { el.disabled = disabled; });
+  if (!slide) {
+    updateControlLabels();
+    return;
+  }
   els.panX.value = slide.panX;
   els.panY.value = slide.panY;
   els.zoomStart.value = slide.zoomStart;
   els.zoomEnd.value = slide.zoomEnd;
-  els.duration.value = Math.max(1, Math.min(15, slide.duration));
+  els.duration.max = Math.max(60, Math.ceil(slide.duration * 2), Math.ceil((slide.originalDuration || 4) * 2));
+  els.duration.value = Math.max(0.5, Math.min(Number(els.duration.max), slide.duration));
   els.backgroundMode.value = slide.backgroundMode || 'cover';
+  els.videoHint.style.display = slide.type === 'video' ? 'block' : 'none';
   updateControlLabels();
 }
 
@@ -213,33 +316,62 @@ function applyControlChange() {
   renderSlideList();
 }
 
+function getOutputSize() {
+  if (els.formatSelect.value === 'custom') {
+    return [clampEven(Number(els.customWidth.value) || 1920, 320, 3840), clampEven(Number(els.customHeight.value) || 1080, 240, 3840)];
+  }
+  return els.formatSelect.value.split('x').map(Number);
+}
+
+function clampEven(value, min, max) {
+  const clamped = Math.max(min, Math.min(max, Math.round(value)));
+  return clamped % 2 === 0 ? clamped : clamped + 1;
+}
+
+function updatePreviewCanvasSize() {
+  const [width, height] = getOutputSize();
+  const wide = width >= height;
+  const previewW = wide ? 960 : Math.max(360, Math.round(720 * width / height));
+  const previewH = wide ? Math.round(960 * height / width) : 720;
+  els.previewCanvas.width = previewW;
+  els.previewCanvas.height = previewH;
+  els.canvasWrap.style.aspectRatio = `${width} / ${height}`;
+  els.emptyState.textContent = `Здесь появится предпросмотр ${width}×${height}`;
+  els.customSizeBox.classList.toggle('visible', els.formatSelect.value === 'custom');
+  drawCurrentPreview();
+}
+
 function drawCurrentPreview() {
   if (!state.slides.length) {
     previewCtx.clearRect(0, 0, els.previewCanvas.width, els.previewCanvas.height);
     els.emptyState.style.display = 'grid';
-    els.currentInfo.textContent = 'Загрузи фото, затем выбери кадр.';
+    els.currentInfo.textContent = 'Загрузи фото/видео, затем выбери кадр.';
     return;
   }
   els.emptyState.style.display = 'none';
   const current = slideAtTime(state.previewTimeOffset);
+  prepareVideoForDraw(current.slide, current.localTime, false);
   drawSlide(previewCtx, current.slide, current.progress, els.previewCanvas.width, els.previewCanvas.height);
-  els.currentInfo.textContent = `${current.index + 1}/${state.slides.length}: ${current.slide.name}`;
+  const kind = current.slide.type === 'video' ? 'Видео' : 'Фото';
+  els.currentInfo.textContent = `${current.index + 1}/${state.slides.length}: ${kind} · ${current.slide.name}`;
   const total = totalDuration();
   els.previewProgress.style.width = total ? `${Math.min(100, (state.previewTimeOffset / total) * 100)}%` : '0%';
   els.timeLabel.textContent = `${formatTime(state.previewTimeOffset)} / ${formatTime(total)}`;
 }
 
 function slideAtTime(time) {
-  if (!state.slides.length) return { slide: null, index: -1, progress: 0 };
+  if (!state.slides.length) return { slide: null, index: -1, progress: 0, localTime: 0 };
   let cursor = 0;
   for (let i = 0; i < state.slides.length; i++) {
     const duration = Math.max(0.1, Number(state.slides[i].duration || 0));
     if (time < cursor + duration || i === state.slides.length - 1) {
-      return { slide: state.slides[i], index: i, progress: Math.max(0, Math.min(1, (time - cursor) / duration)) };
+      const localTime = Math.max(0, Math.min(duration, time - cursor));
+      return { slide: state.slides[i], index: i, progress: Math.max(0, Math.min(1, localTime / duration)), localTime };
     }
     cursor += duration;
   }
-  return { slide: state.slides[state.slides.length - 1], index: state.slides.length - 1, progress: 1 };
+  const last = state.slides[state.slides.length - 1];
+  return { slide: last, index: state.slides.length - 1, progress: 1, localTime: last.duration };
 }
 
 function drawSlide(ctx, slide, rawProgress, width, height) {
@@ -247,50 +379,100 @@ function drawSlide(ctx, slide, rawProgress, width, height) {
   ctx.clearRect(0, 0, width, height);
   ctx.fillStyle = '#02030a';
   ctx.fillRect(0, 0, width, height);
-  if (!slide || !slide.image) {
+  if (!slide || !slide.source) {
     ctx.restore();
     return;
   }
   const progress = ease(rawProgress);
-  if (slide.backgroundMode === 'containBlur') drawBlurBackground(ctx, slide.image, width, height);
+  const source = slide.source;
+  const sourceWidth = slide.type === 'video' ? (source.videoWidth || slide.width) : slide.width;
+  const sourceHeight = slide.type === 'video' ? (source.videoHeight || slide.height) : slide.height;
 
-  const baseScale = slide.backgroundMode === 'containBlur'
-    ? Math.min(width / slide.width, height / slide.height)
-    : Math.max(width / slide.width, height / slide.height);
+  if (slide.backgroundMode === 'containBlur') drawBlurBackground(ctx, source, sourceWidth, sourceHeight, width, height);
+
+  let baseScale;
+  if (slide.backgroundMode === 'cover') baseScale = Math.max(width / sourceWidth, height / sourceHeight);
+  else baseScale = Math.min(width / sourceWidth, height / sourceHeight);
+
   const zoom = lerp(slide.zoomStart, slide.zoomEnd, progress);
   const scale = baseScale * zoom;
-  const drawW = slide.width * scale;
-  const drawH = slide.height * scale;
-  const overflowX = Math.max(0, (drawW - width) / 2);
-  const overflowY = Math.max(0, (drawH - height) / 2);
-  const offsetX = (slide.panX / 100) * overflowX;
-  const offsetY = (slide.panY / 100) * overflowY;
+  const drawW = sourceWidth * scale;
+  const drawH = sourceHeight * scale;
+  const freeX = Math.max(0, Math.abs(drawW - width) / 2);
+  const freeY = Math.max(0, Math.abs(drawH - height) / 2);
+  const offsetX = (slide.panX / 100) * freeX;
+  const offsetY = (slide.panY / 100) * freeY;
   const dx = (width - drawW) / 2 + offsetX;
   const dy = (height - drawH) / 2 + offsetY;
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(slide.image, dx, dy, drawW, drawH);
+  try {
+    ctx.drawImage(source, dx, dy, drawW, drawH);
+  } catch (_) {
+    ctx.fillStyle = '#111827';
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = '#83e6c3';
+    ctx.font = `${Math.max(18, width * 0.035)}px system-ui`;
+    ctx.textAlign = 'center';
+    ctx.fillText('Видео загружается…', width / 2, height / 2);
+  }
   ctx.restore();
 }
 
-function drawBlurBackground(ctx, image, width, height) {
-  const baseScale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
-  const drawW = image.naturalWidth * baseScale;
-  const drawH = image.naturalHeight * baseScale;
+function drawBlurBackground(ctx, source, sourceWidth, sourceHeight, width, height) {
+  const baseScale = Math.max(width / sourceWidth, height / sourceHeight);
+  const drawW = sourceWidth * baseScale;
+  const drawH = sourceHeight * baseScale;
   ctx.save();
-  ctx.filter = 'blur(28px) brightness(0.65) saturate(1.15)';
-  ctx.drawImage(image, (width - drawW) / 2, (height - drawH) / 2, drawW, drawH);
+  ctx.filter = 'blur(34px) brightness(0.62) saturate(1.15)';
+  try { ctx.drawImage(source, (width - drawW) / 2, (height - drawH) / 2, drawW, drawH); } catch (_) {}
   ctx.filter = 'none';
-  ctx.fillStyle = 'rgba(0,0,0,.18)';
+  ctx.fillStyle = 'rgba(0,0,0,.22)';
   ctx.fillRect(0, 0, width, height);
   ctx.restore();
+}
+
+function getVideoTargetTime(slide, localTime) {
+  const duration = Math.max(0.1, Number(slide.duration || slide.originalDuration || 1));
+  const original = Math.max(0.1, Number(slide.originalDuration || 1));
+  const ratio = original / duration;
+  return Math.max(0, Math.min(original - 0.05, localTime * ratio));
+}
+
+function prepareVideoForDraw(slide, localTime, shouldPlay) {
+  if (!slide || slide.type !== 'video') return;
+  const video = slide.source;
+  const target = getVideoTargetTime(slide, localTime);
+  if (shouldPlay) {
+    if (state.activeVideoId !== slide.id) {
+      pauseAllVideos();
+      state.activeVideoId = slide.id;
+      video.currentTime = target;
+    } else if (Math.abs(video.currentTime - target) > 0.45) {
+      video.currentTime = target;
+    }
+    video.muted = true;
+    video.play().catch(() => {});
+  } else {
+    if (!video.paused) video.pause();
+    if (Math.abs(video.currentTime - target) > 0.18) {
+      try { video.currentTime = target; } catch (_) {}
+    }
+  }
+}
+
+function pauseAllVideos() {
+  state.slides.forEach((slide) => {
+    if (slide.type === 'video' && slide.source) slide.source.pause();
+  });
+  state.activeVideoId = null;
 }
 
 function renderAll() {
   renderStats();
   renderSlideList();
   syncControls();
-  drawCurrentPreview();
+  updatePreviewCanvasSize();
 }
 
 function setExportStatus(text, percent = null) {
@@ -317,6 +499,8 @@ function startPreview() {
       stopPreview(true);
       return;
     }
+    const current = slideAtTime(state.previewTimeOffset);
+    prepareVideoForDraw(current.slide, current.localTime, true);
     drawCurrentPreview();
     state.raf = requestAnimationFrame(tick);
   };
@@ -328,13 +512,14 @@ function stopPreview(reset = false) {
   els.playBtn.textContent = '▶ Смотреть';
   cancelAnimationFrame(state.raf);
   els.audioPreview.pause();
+  pauseAllVideos();
   if (reset) state.previewTimeOffset = 0;
   drawCurrentPreview();
 }
 
 async function exportVideo() {
   if (!state.slides.length) {
-    setExportStatus('Сначала добавь фото.', 0);
+    setExportStatus('Сначала добавь фото/видео.', 0);
     return;
   }
   const total = totalDuration();
@@ -343,7 +528,7 @@ async function exportVideo() {
     return;
   }
   stopPreview(false);
-  const [width, height] = els.resolutionSelect.value.split('x').map(Number);
+  const [width, height] = getOutputSize();
   const fps = Number(els.fpsSelect.value);
   const exportCanvas = document.createElement('canvas');
   exportCanvas.width = width;
@@ -386,7 +571,7 @@ async function exportVideo() {
   const chunks = [];
   const recorder = new MediaRecorder(mixedStream, {
     mimeType,
-    videoBitsPerSecond: width >= 1920 ? 12000000 : 7000000,
+    videoBitsPerSecond: width >= 1920 || height >= 1920 ? 14000000 : 8000000,
     audioBitsPerSecond: 192000,
   });
 
@@ -408,6 +593,7 @@ async function exportVideo() {
       const elapsed = (performance.now() - startedAt) / 1000;
       const t = Math.min(total, elapsed);
       const current = slideAtTime(t);
+      prepareVideoForDraw(current.slide, current.localTime, true);
       drawSlide(exportCtx, current.slide, current.progress, width, height);
       setExportStatus(`Экспорт: ${formatTime(t)} / ${formatTime(total)}`, (t / total) * 100);
       if (elapsed >= total) {
@@ -420,6 +606,7 @@ async function exportVideo() {
   });
 
   try { if (audioSource) audioSource.stop(); } catch (_) {}
+  pauseAllVideos();
   recorder.stop();
   await done;
   videoStream.getTracks().forEach((track) => track.stop());
@@ -431,7 +618,7 @@ async function exportVideo() {
   const a = document.createElement('a');
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   a.href = url;
-  a.download = `slideshow-${stamp}.webm`;
+  a.download = `slideshow-${width}x${height}-${stamp}.webm`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -440,7 +627,7 @@ async function exportVideo() {
   setExportStatus('Готово. Файл WebM скачан.', 100);
 }
 
-els.photoInput.addEventListener('change', (event) => addFiles(event.target.files));
+els.mediaInput.addEventListener('change', (event) => addFiles(event.target.files));
 els.dropzone.addEventListener('dragover', (event) => { event.preventDefault(); els.dropzone.classList.add('dragover'); });
 els.dropzone.addEventListener('dragleave', () => els.dropzone.classList.remove('dragover'));
 els.dropzone.addEventListener('drop', (event) => {
@@ -474,15 +661,52 @@ els.resetSlideBtn.addEventListener('click', () => {
   slide.panX = 0;
   slide.panY = 0;
   slide.zoomStart = 1;
-  slide.zoomEnd = 1.08;
+  slide.zoomEnd = slide.type === 'video' ? 1 : 1.08;
   slide.backgroundMode = 'cover';
   syncControls();
   drawCurrentPreview();
 });
+
+els.fitWholeBtn.addEventListener('click', () => {
+  const slide = selectedSlide();
+  if (!slide) return;
+  slide.panX = 0;
+  slide.panY = 0;
+  slide.zoomStart = 1;
+  slide.zoomEnd = 1;
+  slide.backgroundMode = 'containBlur';
+  syncControls();
+  drawCurrentPreview();
+});
+
+els.coverBtn.addEventListener('click', () => {
+  const slide = selectedSlide();
+  if (!slide) return;
+  slide.backgroundMode = 'cover';
+  slide.zoomStart = Math.max(1, Number(slide.zoomStart));
+  slide.zoomEnd = Math.max(1, Number(slide.zoomEnd));
+  syncControls();
+  drawCurrentPreview();
+});
+
+els.softZoomBtn.addEventListener('click', () => {
+  const slide = selectedSlide();
+  if (!slide) return;
+  slide.zoomStart = Math.max(0.25, Number(slide.zoomStart));
+  slide.zoomEnd = Math.min(4, Number(slide.zoomStart) + 0.08);
+  syncControls();
+  drawCurrentPreview();
+});
+
 els.fitToMusicBtn.addEventListener('click', () => fitToMusic(true));
 els.clearBtn.addEventListener('click', () => {
   stopPreview(true);
-  state.slides.forEach((slide) => URL.revokeObjectURL(slide.url));
+  state.slides.forEach((slide) => {
+    try { URL.revokeObjectURL(slide.url); } catch (_) {}
+    if (slide.thumbUrl && slide.thumbUrl.startsWith('blob:')) {
+      try { URL.revokeObjectURL(slide.thumbUrl); } catch (_) {}
+    }
+  });
   state.slides = [];
   state.selectedIndex = -1;
   renderAll();
@@ -490,5 +714,8 @@ els.clearBtn.addEventListener('click', () => {
 els.playBtn.addEventListener('click', () => state.playing ? stopPreview(false) : startPreview());
 els.stopBtn.addEventListener('click', () => stopPreview(true));
 els.exportBtn.addEventListener('click', exportVideo);
+els.formatSelect.addEventListener('change', updatePreviewCanvasSize);
+els.customWidth.addEventListener('input', updatePreviewCanvasSize);
+els.customHeight.addEventListener('input', updatePreviewCanvasSize);
 
 renderAll();
