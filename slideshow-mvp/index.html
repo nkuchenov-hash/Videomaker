@@ -25,7 +25,7 @@
         <div class="panel-header">
           <div>
             <h2>1. Загрузка</h2>
-            <p>Добавь фото, видео и музыку. Порядок можно менять стрелками или перетаскиванием.</p>
+            <p>Добавь фото, видео и музыку. Порядок можно менять стрелками или перетаскиванием. Теперь можно выделять несколько кадров и удалять пачкой.</p>
           </div>
         </div>
 
@@ -47,12 +47,26 @@
           <div><span>Итог</span><strong id="totalDuration">—</strong></div>
         </div>
 
+        <div class="project-actions">
+          <button class="secondary" id="saveProjectBtn" type="button">Сохранить проект</button>
+          <button class="secondary" id="loadProjectBtn" type="button">Открыть сохранённый</button>
+          <button class="ghost" id="deleteSavedProjectBtn" type="button">Удалить сохранение</button>
+        </div>
+        <p class="hint" id="projectStatus">Проект сохраняется локально в этом браузере вместе с медиафайлами. На сервер ничего не отправляется.</p>
+
         <button class="secondary full" id="fitToMusicBtn" type="button">Подогнать фото под длину музыки</button>
         <p class="hint">Видео сохраняют свою длительность. Оставшееся время музыки распределяется между фото.</p>
 
         <div class="timeline-header">
-          <h3>Порядок кадров</h3>
-          <button class="ghost" id="clearBtn" type="button">Очистить</button>
+          <div>
+            <h3>Порядок кадров</h3>
+            <span id="selectedCount" class="selected-count">Ничего не выбрано</span>
+          </div>
+          <div class="timeline-actions">
+            <button class="ghost" id="selectAllBtn" type="button">Выбрать все</button>
+            <button class="ghost danger" id="deleteSelectedBtn" type="button" disabled>Удалить выбранные</button>
+            <button class="ghost" id="clearBtn" type="button">Очистить всё</button>
+          </div>
         </div>
         <div class="slide-list" id="slideList"></div>
       </section>
@@ -151,9 +165,9 @@
         <section class="panel export-panel">
           <div>
             <h2>4. Экспорт</h2>
-            <p>Веб-MVP экспортирует WebM. Для MP4/H.264 под телевизор потом лучше добавить локальный FFmpeg-экспорт.</p>
+            <p>Веб-экспорт остаётся WebM, но теперь файл дописывается с длительностью, чтобы нормально проматывался в плеерах. Для железобетонного MP4/H.264 под телевизор потом лучше добавить локальный FFmpeg-экспорт.</p>
           </div>
-          <button id="exportBtn" class="primary export" type="button">Скачать видео WebM</button>
+          <button id="exportBtn" class="primary export" type="button">Скачать WebM с перемоткой</button>
           <div class="export-status">
             <div class="progress-shell"><div id="exportProgress"></div></div>
             <span id="exportStatusText">Готово к экспорту</span>

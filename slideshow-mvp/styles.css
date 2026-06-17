@@ -115,3 +115,21 @@ canvas { display: block; width: 100%; height: auto; max-height: 68vh; background
   .slide-card { grid-template-columns: 52px 1fr; }
   .slide-actions { grid-column: 2; }
 }
+
+.project-actions { display: grid; grid-template-columns: 1fr; gap: 8px; margin: 12px 0 8px; }
+.project-actions .secondary, .project-actions .ghost { width: 100%; padding: 10px 12px; font-size: 13px; }
+.timeline-header { gap: 10px; align-items: flex-start; }
+.timeline-actions { display: flex; flex-wrap: wrap; gap: 7px; justify-content: flex-end; }
+.timeline-actions .ghost { padding: 8px 10px; font-size: 12px; }
+.selected-count { display: block; margin-top: 4px; color: var(--muted-2); font-size: 12px; }
+.ghost.danger { color: var(--danger); border-color: rgba(255, 123, 123, .28); }
+.slide-card { grid-template-columns: 24px 56px 1fr auto; }
+.slide-card.checked { border-color: rgba(255,255,255,.30); background: rgba(255,255,255,.085); }
+.slide-card.empty-card { grid-template-columns: 1fr; color: var(--muted-2); }
+.slide-check { width: 24px; height: 24px; display: grid; place-items: center; cursor: pointer; }
+.slide-check input { width: 17px; height: 17px; accent-color: var(--brand); cursor: pointer; }
+@media (max-width: 640px) {
+  .slide-card { grid-template-columns: 24px 52px 1fr; }
+  .slide-actions { grid-column: 3; }
+  .timeline-actions { justify-content: flex-start; }
+}

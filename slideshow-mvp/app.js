@@ -1,6 +1,7 @@
 const state = {
   slides: [],
   selectedIndex: -1,
+  selectedIds: new Set(),
   audioFile: null,
   audioUrl: null,
   audioDuration: 0,
@@ -24,6 +25,8 @@ const els = {
   fitWholeBtn: $('fitWholeBtn'), coverBtn: $('coverBtn'), softZoomBtn: $('softZoomBtn'), videoHint: $('videoHint'),
   formatSelect: $('formatSelect'), customSizeBox: $('customSizeBox'), customWidth: $('customWidth'), customHeight: $('customHeight'), fpsSelect: $('fpsSelect'), exportBtn: $('exportBtn'),
   exportProgress: $('exportProgress'), exportStatusText: $('exportStatusText'), audioPreview: $('audioPreview'),
+  selectedCount: $('selectedCount'), selectAllBtn: $('selectAllBtn'), deleteSelectedBtn: $('deleteSelectedBtn'),
+  saveProjectBtn: $('saveProjectBtn'), loadProjectBtn: $('loadProjectBtn'), deleteSavedProjectBtn: $('deleteSavedProjectBtn'), projectStatus: $('projectStatus'),
 };
 const previewCtx = els.previewCanvas.getContext('2d');
 
@@ -166,6 +169,7 @@ async function addFiles(fileList) {
   if (state.audioDuration) fitToMusic(false);
   setExportStatus('Файлы добавлены.', 0);
   renderAll();
+renderSelectionState();
 }
 
 function fitToMusic(showMessage = true) {
@@ -190,6 +194,7 @@ function fitToMusic(showMessage = true) {
     if (showMessage) setExportStatus('Музыка короче видео/кадров, поэтому всё пропорционально сжато под трек.', 0);
   }
   renderAll();
+renderSelectionState();
 }
 
 function renderStats() {
@@ -203,20 +208,24 @@ function renderSlideList() {
   els.slideList.innerHTML = '';
   if (!state.slides.length) {
     const empty = document.createElement('div');
-    empty.className = 'slide-card';
+    empty.className = 'slide-card empty-card';
     empty.textContent = 'Пока нет фото/видео';
     els.slideList.appendChild(empty);
+    renderSelectionState();
     return;
   }
   state.slides.forEach((slide, index) => {
     const card = document.createElement('div');
-    card.className = `slide-card ${index === state.selectedIndex ? 'selected' : ''}`;
+    card.className = `slide-card ${index === state.selectedIndex ? 'selected' : ''} ${state.selectedIds.has(slide.id) ? 'checked' : ''}`;
     card.draggable = true;
     const thumbHtml = slide.thumbUrl
       ? `<img src="${slide.thumbUrl}" alt="" />`
       : `<span class="thumb-fallback">${slide.type === 'video' ? '▶' : 'IMG'}</span>`;
     const kind = slide.type === 'video' ? 'Видео' : 'Фото';
     card.innerHTML = `
+      <label class="slide-check" title="Выбрать для удаления">
+        <input type="checkbox" ${state.selectedIds.has(slide.id) ? 'checked' : ''} />
+      </label>
       ${thumbHtml}
       <span class="slide-title">
         <strong>${index + 1}. ${escapeHtml(slide.name)}</strong>
@@ -227,8 +236,13 @@ function renderSlideList() {
         <button type="button" title="Ниже">↓</button>
       </span>
     `;
+    const checkbox = card.querySelector('.slide-check input');
+    checkbox.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleSlideChecked(slide.id, checkbox.checked);
+    });
     card.addEventListener('click', (event) => {
-      if (event.target.tagName === 'BUTTON') return;
+      if (event.target.tagName === 'BUTTON' || event.target.tagName === 'INPUT' || event.target.closest('.slide-check')) return;
       selectSlide(index);
     });
     const [upBtn, downBtn] = card.querySelectorAll('.slide-actions button');
@@ -245,10 +259,64 @@ function renderSlideList() {
     });
     els.slideList.appendChild(card);
   });
+  renderSelectionState();
 }
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
+}
+
+function renderSelectionState() {
+  const selected = state.selectedIds.size;
+  if (els.selectedCount) els.selectedCount.textContent = selected ? `Выбрано: ${selected}` : 'Ничего не выбрано';
+  if (els.deleteSelectedBtn) els.deleteSelectedBtn.disabled = selected === 0;
+  if (els.selectAllBtn) {
+    els.selectAllBtn.disabled = state.slides.length === 0;
+    els.selectAllBtn.textContent = selected && selected === state.slides.length ? 'Снять выбор' : 'Выбрать все';
+  }
+}
+
+function toggleSlideChecked(id, checked) {
+  if (checked) state.selectedIds.add(id);
+  else state.selectedIds.delete(id);
+  renderSlideList();
+}
+
+function selectAllOrNone() {
+  if (!state.slides.length) return;
+  if (state.selectedIds.size === state.slides.length) state.selectedIds.clear();
+  else state.slides.forEach((slide) => state.selectedIds.add(slide.id));
+  renderSlideList();
+}
+
+function revokeSlideUrls(slide) {
+  try { if (slide.url) URL.revokeObjectURL(slide.url); } catch (_) {}
+  if (slide.thumbUrl && slide.thumbUrl.startsWith('blob:')) {
+    try { URL.revokeObjectURL(slide.thumbUrl); } catch (_) {}
+  }
+}
+
+function deleteSelectedSlides() {
+  if (!state.selectedIds.size) return;
+  stopPreview(false);
+  const selectedIds = new Set(state.selectedIds);
+  state.slides.forEach((slide) => { if (selectedIds.has(slide.id)) revokeSlideUrls(slide); });
+  const previousSelectedSlide = selectedSlide();
+  state.slides = state.slides.filter((slide) => !selectedIds.has(slide.id));
+  state.selectedIds.clear();
+
+  if (!state.slides.length) {
+    state.selectedIndex = -1;
+    state.previewTimeOffset = 0;
+  } else if (previousSelectedSlide && !selectedIds.has(previousSelectedSlide.id)) {
+    state.selectedIndex = state.slides.findIndex((slide) => slide.id === previousSelectedSlide.id);
+  } else {
+    state.selectedIndex = Math.min(state.selectedIndex, state.slides.length - 1);
+    if (state.selectedIndex < 0) state.selectedIndex = 0;
+  }
+  renderAll();
+renderSelectionState();
+  setExportStatus(`Удалено: ${selectedIds.size}.`, 0);
 }
 
 function moveSlide(from, to) {
@@ -259,6 +327,7 @@ function moveSlide(from, to) {
   else if (state.selectedIndex > from && state.selectedIndex <= to) state.selectedIndex -= 1;
   else if (state.selectedIndex < from && state.selectedIndex >= to) state.selectedIndex += 1;
   renderAll();
+renderSelectionState();
 }
 
 function selectSlide(index) {
@@ -267,6 +336,7 @@ function selectSlide(index) {
   state.previewTimeOffset = timeAtSlide(index);
   syncControls();
   renderAll();
+renderSelectionState();
 }
 
 function timeAtSlide(index) {
@@ -517,6 +587,314 @@ function stopPreview(reset = false) {
   drawCurrentPreview();
 }
 
+const DB_NAME = 'family-slideshow-maker-db';
+const DB_VERSION = 1;
+const PROJECT_STORE = 'projects';
+const LAST_PROJECT_KEY = 'last';
+
+function openProjectDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(PROJECT_STORE)) db.createObjectStore(PROJECT_STORE);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('IndexedDB error'));
+  });
+}
+
+async function idbPut(key, value) {
+  const db = await openProjectDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PROJECT_STORE, 'readwrite');
+    tx.objectStore(PROJECT_STORE).put(value, key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error || new Error('Cannot save project')); };
+  });
+}
+
+async function idbGet(key) {
+  const db = await openProjectDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PROJECT_STORE, 'readonly');
+    const request = tx.objectStore(PROJECT_STORE).get(key);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error || new Error('Cannot load project'));
+    tx.oncomplete = () => db.close();
+  });
+}
+
+async function idbDelete(key) {
+  const db = await openProjectDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PROJECT_STORE, 'readwrite');
+    tx.objectStore(PROJECT_STORE).delete(key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error || new Error('Cannot delete project')); };
+  });
+}
+
+function makeProjectSnapshot() {
+  return {
+    version: 3,
+    savedAt: new Date().toISOString(),
+    settings: {
+      format: els.formatSelect.value,
+      customWidth: Number(els.customWidth.value) || 1920,
+      customHeight: Number(els.customHeight.value) || 1080,
+      fps: els.fpsSelect.value,
+    },
+    audio: state.audioFile ? {
+      file: state.audioFile,
+      name: state.audioFile.name,
+      type: state.audioFile.type,
+      duration: state.audioDuration,
+      lastModified: state.audioFile.lastModified,
+    } : null,
+    slides: state.slides.map((slide) => ({
+      id: slide.id,
+      file: slide.file,
+      name: slide.name,
+      type: slide.type,
+      panX: slide.panX,
+      panY: slide.panY,
+      zoomStart: slide.zoomStart,
+      zoomEnd: slide.zoomEnd,
+      duration: slide.duration,
+      backgroundMode: slide.backgroundMode,
+      originalDuration: slide.originalDuration,
+    })),
+  };
+}
+
+async function saveProjectToBrowser() {
+  if (!state.slides.length && !state.audioFile) {
+    setProjectStatus('Сначала добавь фото/видео или музыку.');
+    return;
+  }
+  try {
+    setProjectStatus('Сохраняю проект в браузере…');
+    await idbPut(LAST_PROJECT_KEY, makeProjectSnapshot());
+    setProjectStatus(`Проект сохранён: ${new Date().toLocaleString()}.`);
+  } catch (error) {
+    console.error(error);
+    setProjectStatus('Не получилось сохранить проект. Возможно, файлы слишком большие для хранилища браузера.');
+  }
+}
+
+function setProjectStatus(text) {
+  if (els.projectStatus) els.projectStatus.textContent = text;
+}
+
+async function loadProjectFromBrowser() {
+  try {
+    setProjectStatus('Открываю сохранённый проект…');
+    const project = await idbGet(LAST_PROJECT_KEY);
+    if (!project) {
+      setProjectStatus('Сохранённого проекта в этом браузере пока нет.');
+      return;
+    }
+    stopPreview(true);
+    state.slides.forEach(revokeSlideUrls);
+    state.slides = [];
+    state.selectedIds.clear();
+    state.selectedIndex = -1;
+
+    if (project.settings) {
+      els.formatSelect.value = project.settings.format || '1920x1080';
+      els.customWidth.value = project.settings.customWidth || 1920;
+      els.customHeight.value = project.settings.customHeight || 1080;
+      els.fpsSelect.value = project.settings.fps || '30';
+    }
+
+    if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
+    state.audioFile = null;
+    state.audioUrl = null;
+    state.audioDuration = 0;
+    els.audioPreview.removeAttribute('src');
+    if (project.audio && project.audio.file) {
+      state.audioFile = project.audio.file;
+      state.audioUrl = URL.createObjectURL(project.audio.file);
+      els.audioPreview.src = state.audioUrl;
+      try {
+        await waitForEvent(els.audioPreview, 'loadedmetadata', 8000);
+        state.audioDuration = els.audioPreview.duration || project.audio.duration || 0;
+      } catch (_) {
+        state.audioDuration = project.audio.duration || 0;
+      }
+    }
+
+    for (const item of project.slides || []) {
+      try {
+        const loaded = item.type === 'video' ? await loadVideoFromFile(item.file) : await loadImageFromFile(item.file);
+        state.slides.push({
+          id: item.id || uid(),
+          file: item.file,
+          name: item.name || item.file?.name || 'media',
+          ...loaded,
+          panX: Number(item.panX || 0),
+          panY: Number(item.panY || 0),
+          zoomStart: Number(item.zoomStart ?? 1),
+          zoomEnd: Number(item.zoomEnd ?? (loaded.type === 'video' ? 1 : 1.08)),
+          duration: Number(item.duration || loaded.originalDuration || 4),
+          backgroundMode: item.backgroundMode || 'cover',
+          originalDuration: Number(item.originalDuration || loaded.originalDuration || 4),
+        });
+      } catch (error) {
+        console.warn('Cannot restore media', item.name, error);
+      }
+    }
+    state.selectedIndex = state.slides.length ? 0 : -1;
+    state.previewTimeOffset = 0;
+    renderAll();
+renderSelectionState();
+    setProjectStatus(`Проект открыт. Кадров: ${state.slides.length}.`);
+  } catch (error) {
+    console.error(error);
+    setProjectStatus('Не получилось открыть сохранённый проект.');
+  }
+}
+
+async function deleteSavedProject() {
+  try {
+    await idbDelete(LAST_PROJECT_KEY);
+    setProjectStatus('Сохранённый проект удалён из браузера.');
+  } catch (error) {
+    console.error(error);
+    setProjectStatus('Не получилось удалить сохранение.');
+  }
+}
+
+function findBytes(bytes, pattern, from = 0, to = bytes.length) {
+  outer: for (let i = from; i <= to - pattern.length; i++) {
+    for (let j = 0; j < pattern.length; j++) if (bytes[i + j] !== pattern[j]) continue outer;
+    return i;
+  }
+  return -1;
+}
+
+function readVint(bytes, pos) {
+  const first = bytes[pos];
+  if (first === undefined) return null;
+  let length = 1;
+  let mask = 0x80;
+  while (length <= 8 && !(first & mask)) { length++; mask >>= 1; }
+  if (length > 8 || pos + length > bytes.length) return null;
+  let value = BigInt(first & (mask - 1));
+  let raw = BigInt(first);
+  for (let i = 1; i < length; i++) {
+    value = (value << 8n) | BigInt(bytes[pos + i]);
+    raw = (raw << 8n) | BigInt(bytes[pos + i]);
+  }
+  const unknown = value === ((1n << BigInt(7 * length)) - 1n);
+  return { length, value, unknown, raw };
+}
+
+function encodeVintSize(value, forcedLength = null) {
+  let big = BigInt(Math.max(0, Math.round(Number(value))));
+  let length = forcedLength || 1;
+  if (!forcedLength) {
+    while (length < 8 && big > ((1n << BigInt(7 * length)) - 2n)) length++;
+  }
+  const max = (1n << BigInt(7 * length)) - 2n;
+  if (big > max) throw new Error('EBML size is too large');
+  const bytes = new Uint8Array(length);
+  for (let i = length - 1; i >= 0; i--) {
+    bytes[i] = Number(big & 0xffn);
+    big >>= 8n;
+  }
+  bytes[0] |= 1 << (8 - length);
+  return bytes;
+}
+
+function createDurationElement(durationTicks) {
+  const element = new Uint8Array(11);
+  element[0] = 0x44;
+  element[1] = 0x89;
+  element[2] = 0x88;
+  new DataView(element.buffer).setFloat64(3, durationTicks, false);
+  return element;
+}
+
+function readUnsigned(bytes, pos, length) {
+  let value = 0;
+  for (let i = 0; i < length; i++) value = value * 256 + bytes[pos + i];
+  return value;
+}
+
+async function fixWebmDuration(blob, durationMs) {
+  if (!blob.type.includes('webm')) return blob;
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const infoId = [0x15, 0x49, 0xa9, 0x66];
+  const infoPos = findBytes(bytes, infoId);
+  if (infoPos < 0) return blob;
+  const sizeInfo = readVint(bytes, infoPos + infoId.length);
+  if (!sizeInfo || sizeInfo.unknown) return blob;
+
+  const infoDataStart = infoPos + infoId.length + sizeInfo.length;
+  const infoDataEnd = Math.min(bytes.length, infoDataStart + Number(sizeInfo.value));
+  let timecodeScale = 1000000;
+  const scalePos = findBytes(bytes, [0x2a, 0xd7, 0xb1], infoDataStart, infoDataEnd);
+  if (scalePos >= 0) {
+    const scaleSize = readVint(bytes, scalePos + 3);
+    if (scaleSize && !scaleSize.unknown && Number(scaleSize.value) <= 8) {
+      const scaleDataStart = scalePos + 3 + scaleSize.length;
+      timecodeScale = readUnsigned(bytes, scaleDataStart, Number(scaleSize.value)) || timecodeScale;
+    }
+  }
+  const durationTicks = (Number(durationMs) * 1000000) / timecodeScale;
+  const durationElement = createDurationElement(durationTicks);
+
+  let durationPos = findBytes(bytes, [0x44, 0x89], infoDataStart, infoDataEnd);
+  let oldDurationLength = 0;
+  if (durationPos >= 0) {
+    const durSize = readVint(bytes, durationPos + 2);
+    if (durSize && !durSize.unknown) oldDurationLength = 2 + durSize.length + Number(durSize.value);
+  }
+
+  let newInfoPayload;
+  let newInfoPayloadSize;
+  let deltaPayload;
+  if (durationPos >= 0 && oldDurationLength > 0) {
+    const before = bytes.slice(infoDataStart, durationPos);
+    const after = bytes.slice(durationPos + oldDurationLength, infoDataEnd);
+    newInfoPayloadSize = before.length + durationElement.length + after.length;
+    newInfoPayload = new Uint8Array(newInfoPayloadSize);
+    newInfoPayload.set(before, 0);
+    newInfoPayload.set(durationElement, before.length);
+    newInfoPayload.set(after, before.length + durationElement.length);
+    deltaPayload = durationElement.length - oldDurationLength;
+  } else {
+    const oldPayload = bytes.slice(infoDataStart, infoDataEnd);
+    newInfoPayloadSize = oldPayload.length + durationElement.length;
+    newInfoPayload = new Uint8Array(newInfoPayloadSize);
+    newInfoPayload.set(oldPayload, 0);
+    newInfoPayload.set(durationElement, oldPayload.length);
+    deltaPayload = durationElement.length;
+  }
+
+  let newInfoSizeBytes;
+  try {
+    newInfoSizeBytes = encodeVintSize(newInfoPayloadSize, sizeInfo.length);
+  } catch (_) {
+    newInfoSizeBytes = encodeVintSize(newInfoPayloadSize);
+  }
+
+  const beforeInfo = bytes.slice(0, infoPos);
+  const afterInfo = bytes.slice(infoDataEnd);
+  const newBytes = new Uint8Array(beforeInfo.length + infoId.length + newInfoSizeBytes.length + newInfoPayload.length + afterInfo.length);
+  let cursor = 0;
+  newBytes.set(beforeInfo, cursor); cursor += beforeInfo.length;
+  newBytes.set(infoId, cursor); cursor += infoId.length;
+  newBytes.set(newInfoSizeBytes, cursor); cursor += newInfoSizeBytes.length;
+  newBytes.set(newInfoPayload, cursor); cursor += newInfoPayload.length;
+  newBytes.set(afterInfo, cursor);
+
+  return new Blob([newBytes], { type: blob.type });
+}
+
 async function exportVideo() {
   if (!state.slides.length) {
     setExportStatus('Сначала добавь фото/видео.', 0);
@@ -584,7 +962,7 @@ async function exportVideo() {
     recorder.onstop = () => resolve();
   });
 
-  recorder.start(1000);
+  recorder.start();
   if (audioSource) audioSource.start();
   const startedAt = performance.now();
 
@@ -613,7 +991,13 @@ async function exportVideo() {
   mixedStream.getTracks().forEach((track) => track.stop());
   if (audioContext) await audioContext.close();
 
-  const blob = new Blob(chunks, { type: mimeType });
+  const rawBlob = new Blob(chunks, { type: mimeType });
+  let blob = rawBlob;
+  try {
+    blob = await fixWebmDuration(rawBlob, total * 1000);
+  } catch (error) {
+    console.warn('Cannot fix WebM duration', error);
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -624,7 +1008,7 @@ async function exportVideo() {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
   els.exportBtn.disabled = false;
-  setExportStatus('Готово. Файл WebM скачан.', 100);
+  setExportStatus('Готово. WebM скачан с исправленной длительностью для перемотки.', 100);
 }
 
 els.mediaInput.addEventListener('change', (event) => addFiles(event.target.files));
@@ -647,6 +1031,7 @@ els.audioInput.addEventListener('change', (event) => {
     state.audioDuration = els.audioPreview.duration || 0;
     fitToMusic(false);
     renderAll();
+renderSelectionState();
   };
 });
 
@@ -701,21 +1086,24 @@ els.softZoomBtn.addEventListener('click', () => {
 els.fitToMusicBtn.addEventListener('click', () => fitToMusic(true));
 els.clearBtn.addEventListener('click', () => {
   stopPreview(true);
-  state.slides.forEach((slide) => {
-    try { URL.revokeObjectURL(slide.url); } catch (_) {}
-    if (slide.thumbUrl && slide.thumbUrl.startsWith('blob:')) {
-      try { URL.revokeObjectURL(slide.thumbUrl); } catch (_) {}
-    }
-  });
+  state.slides.forEach(revokeSlideUrls);
   state.slides = [];
+  state.selectedIds.clear();
   state.selectedIndex = -1;
   renderAll();
+renderSelectionState();
 });
 els.playBtn.addEventListener('click', () => state.playing ? stopPreview(false) : startPreview());
 els.stopBtn.addEventListener('click', () => stopPreview(true));
 els.exportBtn.addEventListener('click', exportVideo);
+els.selectAllBtn?.addEventListener('click', selectAllOrNone);
+els.deleteSelectedBtn?.addEventListener('click', deleteSelectedSlides);
+els.saveProjectBtn?.addEventListener('click', saveProjectToBrowser);
+els.loadProjectBtn?.addEventListener('click', loadProjectFromBrowser);
+els.deleteSavedProjectBtn?.addEventListener('click', deleteSavedProject);
 els.formatSelect.addEventListener('change', updatePreviewCanvasSize);
 els.customWidth.addEventListener('input', updatePreviewCanvasSize);
 els.customHeight.addEventListener('input', updatePreviewCanvasSize);
 
 renderAll();
+renderSelectionState();
