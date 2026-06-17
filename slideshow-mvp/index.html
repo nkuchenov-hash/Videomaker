@@ -12,7 +12,7 @@
       <div>
         <p class="eyebrow">Локальный редактор</p>
         <h1>Family Slideshow Maker</h1>
-        <p class="subtitle">Фото + видео + музыка → аккуратное слайдшоу и финальное MP4-видео.</p>
+        <p class="subtitle">Фото + видео + музыка → аккуратное слайдшоу и плавный MP4-экспорт.</p>
       </div>
       <div class="privacy-card compact-card">
         <strong>Локально</strong>
@@ -100,8 +100,17 @@
               <label>
                 FPS
                 <select id="fpsSelect">
-                  <option value="24">24</option>
-                  <option value="30" selected>30</option>
+                  <option value="24" selected>24</option>
+                  <option value="30">30</option>
+                </select>
+              </label>
+              <label>
+                Рендер
+                <select id="exportPreset">
+                  <option value="smooth1080" selected>Плавный 1080p</option>
+                  <option value="maxSmooth720">Макс. плавность 720p</option>
+                  <option value="quality1080">Качество 1080p</option>
+                  <option value="current">Как выбрано</option>
                 </select>
               </label>
               <div class="custom-size" id="customSizeBox">
@@ -203,14 +212,14 @@
               </select>
             </label>
           </div>
-          <p class="hint" id="videoHint">Финальный экспорт — MP4-видео. Пакет FFmpeg оставлен как запасной вариант.</p>
+          <p class="hint" id="videoHint">Финальный экспорт — MP4-видео. Для плавности по умолчанию используется 24 fps и умеренный битрейт.</p>
         </section>
 
         <section class="panel export-panel">
           <div class="export-main">
             <div>
               <h2>4. Экспорт</h2>
-              <p>Скачивает готовое MP4-видео прямо из браузера, если MP4 поддерживается текущим браузером.</p>
+              <p>Плавный браузерный рендер: меньше рывков, ниже нагрузка, нормальный размер файла.</p>
             </div>
             <button id="mp4VideoBtn" class="primary export main-export" type="button">Скачать MP4-видео</button>
           </div>

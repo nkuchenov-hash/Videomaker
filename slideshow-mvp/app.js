@@ -17,6 +17,9 @@ const state = {
   draggingPreview: false,
   lastPointerX: 0,
   lastPointerY: 0,
+  isExporting: false,
+  exportBlurCache: new Map(),
+  exportStatusLastAt: 0,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -30,7 +33,7 @@ const els = {
   panXValue: $('panXValue'), panYValue: $('panYValue'), zoomStartValue: $('zoomStartValue'), zoomEndValue: $('zoomEndValue'), durationValue: $('durationValue'),
   backgroundMode: $('backgroundMode'), resetSlideBtn: $('resetSlideBtn'),
   fitWholeBtn: $('fitWholeBtn'), coverBtn: $('coverBtn'), softZoomBtn: $('softZoomBtn'), videoHint: $('videoHint'),
-  formatSelect: $('formatSelect'), customSizeBox: $('customSizeBox'), customWidth: $('customWidth'), customHeight: $('customHeight'), fpsSelect: $('fpsSelect'), exportBtn: $('exportBtn'), mp4VideoBtn: $('mp4VideoBtn'), mp4PackageBtn: $('mp4PackageBtn'),
+  formatSelect: $('formatSelect'), customSizeBox: $('customSizeBox'), customWidth: $('customWidth'), customHeight: $('customHeight'), fpsSelect: $('fpsSelect'), exportPreset: $('exportPreset'), exportBtn: $('exportBtn'), mp4VideoBtn: $('mp4VideoBtn'), mp4PackageBtn: $('mp4PackageBtn'),
   exportProgress: $('exportProgress'), exportStatusText: $('exportStatusText'), audioPreview: $('audioPreview'),
   selectedCount: $('selectedCount'), selectAllBtn: $('selectAllBtn'), deleteSelectedBtn: $('deleteSelectedBtn'),
   saveProjectBtn: $('saveProjectBtn'), loadProjectBtn: $('loadProjectBtn'), deleteSavedProjectBtn: $('deleteSavedProjectBtn'), projectStatus: $('projectStatus'),
@@ -859,6 +862,58 @@ function getOutputSize() {
   return els.formatSelect.value.split('x').map(Number);
 }
 
+function fitSizeToLongSide(width, height, longSide) {
+  const maxSide = Math.max(width, height);
+  if (maxSide <= longSide) return [clampEven(width, 320, 3840), clampEven(height, 240, 3840)];
+  const scale = longSide / maxSide;
+  return [clampEven(width * scale, 320, 3840), clampEven(height * scale, 240, 3840)];
+}
+
+function getExportSettings(kind = 'mp4') {
+  const [baseWidth, baseHeight] = getOutputSize();
+  const preset = els.exportPreset?.value || 'smooth1080';
+  let width = baseWidth;
+  let height = baseHeight;
+  let fps = 24;
+  let videoBitsPerSecond = 6000000;
+  let label = 'Плавный 1080p · 24 fps · 6 Mbps';
+
+  if (preset === 'maxSmooth720') {
+    [width, height] = fitSizeToLongSide(baseWidth, baseHeight, 1280);
+    fps = 24;
+    videoBitsPerSecond = 4000000;
+    label = 'Максимальная плавность · 720p/long 1280 · 24 fps · 4 Mbps';
+  } else if (preset === 'quality1080') {
+    [width, height] = fitSizeToLongSide(baseWidth, baseHeight, 1920);
+    fps = 30;
+    videoBitsPerSecond = 9000000;
+    label = 'Качественный 1080p · 30 fps · 9 Mbps';
+  } else if (preset === 'current') {
+    fps = Number(els.fpsSelect.value || 24);
+    videoBitsPerSecond = width >= 1920 || height >= 1920 ? 10000000 : 6000000;
+    label = `Как выбрано · ${width}×${height} · ${fps} fps`;
+  } else {
+    [width, height] = fitSizeToLongSide(baseWidth, baseHeight, 1920);
+  }
+
+  if (kind !== 'mp4') {
+    videoBitsPerSecond = Math.max(videoBitsPerSecond, 5000000);
+  }
+
+  return {
+    width,
+    height,
+    fps,
+    videoBitsPerSecond,
+    audioBitsPerSecond: 128000,
+    label,
+  };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
 function clampEven(value, min, max) {
   const clamped = Math.max(min, Math.min(max, Math.round(value)));
   return clamped % 2 === 0 ? clamped : clamped + 1;
@@ -926,7 +981,10 @@ function drawSlide(ctx, slide, rawProgress, width, height) {
   const sourceWidth = slide.type === 'video' ? (source.videoWidth || slide.width) : slide.width;
   const sourceHeight = slide.type === 'video' ? (source.videoHeight || slide.height) : slide.height;
 
-  if (slide.backgroundMode === 'containBlur') drawBlurBackground(ctx, source, sourceWidth, sourceHeight, width, height);
+  if (slide.backgroundMode === 'containBlur') {
+    if (state.isExporting && slide.type === 'image') drawCachedBlurBackground(ctx, slide, source, sourceWidth, sourceHeight, width, height);
+    else drawBlurBackground(ctx, source, sourceWidth, sourceHeight, width, height);
+  }
 
   let baseScale;
   if (slide.backgroundMode === 'cover') baseScale = Math.max(width / sourceWidth, height / sourceHeight);
@@ -946,7 +1004,7 @@ function drawSlide(ctx, slide, rawProgress, width, height) {
   const dx = (width - drawW) / 2 + offsetX;
   const dy = (height - drawH) / 2 + offsetY;
   ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
+  ctx.imageSmoothingQuality = state.isExporting ? 'medium' : 'high';
   try {
     ctx.drawImage(source, dx, dy, drawW, drawH);
   } catch (_) {
@@ -971,6 +1029,26 @@ function drawBlurBackground(ctx, source, sourceWidth, sourceHeight, width, heigh
   ctx.fillStyle = 'rgba(0,0,0,.22)';
   ctx.fillRect(0, 0, width, height);
   ctx.restore();
+}
+
+function drawCachedBlurBackground(ctx, slide, source, sourceWidth, sourceHeight, width, height) {
+  const key = `${slide.id}:${width}x${height}`;
+  let cached = state.exportBlurCache.get(key);
+  if (!cached) {
+    cached = document.createElement('canvas');
+    cached.width = width;
+    cached.height = height;
+    const cctx = cached.getContext('2d');
+    drawBlurBackground(cctx, source, sourceWidth, sourceHeight, width, height);
+    state.exportBlurCache.set(key, cached);
+    if (state.exportBlurCache.size > 8) {
+      const firstKey = state.exportBlurCache.keys().next().value;
+      state.exportBlurCache.delete(firstKey);
+    }
+  }
+  try { ctx.drawImage(cached, 0, 0, width, height); } catch (_) {
+    drawBlurBackground(ctx, source, sourceWidth, sourceHeight, width, height);
+  }
 }
 
 function getVideoTargetTime(slide, localTime) {
@@ -1539,6 +1617,30 @@ function supportedMimeForExport(kind) {
   return (kind === 'mp4' ? mp4Types : webmTypes).find((type) => MediaRecorder.isTypeSupported(type)) || '';
 }
 
+async function prepareVideosForExport() {
+  const videos = state.slides.filter((slide) => slide.type === 'video' && slide.source);
+  if (!videos.length) return;
+  setExportStatus(`Подготавливаю видеофрагменты: 0/${videos.length}`, 3);
+  for (let i = 0; i < videos.length; i += 1) {
+    const video = videos[i].source;
+    try {
+      video.preload = 'auto';
+      video.muted = true;
+      video.playsInline = true;
+      if (video.readyState < 2) {
+        try { video.load(); } catch (_) {}
+        await Promise.race([waitForEvent(video, 'loadeddata', 4000), sleep(1200)]).catch(() => {});
+      }
+      if (Number.isFinite(video.duration) && video.duration > 0) {
+        video.currentTime = Math.min(0.01, Math.max(0, video.duration - 0.1));
+        await Promise.race([waitForEvent(video, 'seeked', 2000), sleep(300)]).catch(() => {});
+      }
+      video.pause();
+    } catch (_) {}
+    setExportStatus(`Подготавливаю видеофрагменты: ${i + 1}/${videos.length}`, 3 + ((i + 1) / videos.length) * 7);
+  }
+}
+
 async function exportVideo(kind = 'webm') {
   if (!state.slides.length) {
     setExportStatus('Сначала добавь фото/видео.', 0);
@@ -1559,13 +1661,16 @@ async function exportVideo(kind = 'webm') {
   }
 
   stopPreview(false);
-  const [width, height] = getOutputSize();
-  const fps = Number(els.fpsSelect.value);
+  const exportSettings = getExportSettings(kind);
+  const { width, height, fps } = exportSettings;
+  await prepareVideosForExport();
   const exportCanvas = document.createElement('canvas');
   exportCanvas.width = width;
   exportCanvas.height = height;
   const exportCtx = exportCanvas.getContext('2d');
   const videoStream = exportCanvas.captureStream(fps);
+  const videoTrack = videoStream.getVideoTracks()[0];
+  if (videoTrack) videoTrack.contentHint = 'motion';
   let audioContext = null;
   let audioSource = null;
   let mixedStream = new MediaStream(videoStream.getVideoTracks());
@@ -1593,8 +1698,8 @@ async function exportVideo(kind = 'webm') {
   try {
     recorder = new MediaRecorder(mixedStream, {
       mimeType,
-      videoBitsPerSecond: width >= 1920 || height >= 1920 ? 14000000 : 8000000,
-      audioBitsPerSecond: 192000,
+      videoBitsPerSecond: exportSettings.videoBitsPerSecond,
+      audioBitsPerSecond: exportSettings.audioBitsPerSecond,
     });
   } catch (error) {
     console.error(error);
@@ -1607,7 +1712,10 @@ async function exportVideo(kind = 'webm') {
   if (els.mp4VideoBtn) els.mp4VideoBtn.disabled = true;
   if (els.exportBtn) els.exportBtn.disabled = true;
   if (els.mp4PackageBtn) els.mp4PackageBtn.disabled = true;
-  setExportStatus(isMp4 ? 'Идёт экспорт MP4-видео. Не закрывай вкладку…' : 'Идёт экспорт WebM-черновика…', 0);
+  setExportStatus(`${isMp4 ? 'MP4' : 'WebM'} · ${exportSettings.label}. Не закрывай вкладку…`, 0);
+  state.isExporting = true;
+  state.exportBlurCache.clear();
+  state.exportStatusLastAt = 0;
 
   const done = new Promise((resolve, reject) => {
     recorder.ondataavailable = (event) => { if (event.data.size > 0) chunks.push(event.data); };
@@ -1615,29 +1723,38 @@ async function exportVideo(kind = 'webm') {
     recorder.onstop = () => resolve();
   });
 
-  recorder.start();
+  recorder.start(1000);
   if (audioSource) audioSource.start();
   const startedAt = performance.now();
+  const frameInterval = 1000 / fps;
+  const totalFrames = Math.ceil(total * fps);
+  const canvasTrack = videoStream.getVideoTracks()[0];
 
-  await new Promise((resolve) => {
-    const frame = () => {
-      const elapsed = (performance.now() - startedAt) / 1000;
-      const t = Math.min(total, elapsed);
-      const current = slideAtTime(t);
-      prepareVideoForDraw(current.slide, current.localTime, true);
-      drawSlide(exportCtx, current.slide, current.progress, width, height);
-      setExportStatus(`${isMp4 ? 'MP4' : 'WebM'}: ${formatTime(t)} / ${formatTime(total)}`, (t / total) * 100);
-      if (elapsed >= total) {
-        resolve();
-        return;
-      }
-      requestAnimationFrame(frame);
-    };
-    frame();
-  });
+  for (let frameIndex = 0; frameIndex <= totalFrames; frameIndex += 1) {
+    const t = Math.min(total, frameIndex / fps);
+    const current = slideAtTime(t);
+    prepareVideoForDraw(current.slide, current.localTime, true);
+    drawSlide(exportCtx, current.slide, current.progress, width, height);
+    if (canvasTrack && typeof canvasTrack.requestFrame === 'function') {
+      try { canvasTrack.requestFrame(); } catch (_) {}
+    }
+
+    const now = performance.now();
+    if (!state.exportStatusLastAt || now - state.exportStatusLastAt > 250 || frameIndex === totalFrames) {
+      setExportStatus(`${isMp4 ? 'MP4' : 'WebM'}: ${formatTime(t)} / ${formatTime(total)} · ${width}×${height} · ${fps} fps`, (t / total) * 100);
+      state.exportStatusLastAt = now;
+    }
+
+    if (frameIndex >= totalFrames) break;
+    const nextFrameAt = startedAt + (frameIndex + 1) * frameInterval;
+    const delay = nextFrameAt - performance.now();
+    if (delay > 2) await sleep(delay);
+    else await new Promise((resolve) => requestAnimationFrame(resolve));
+  }
 
   try { if (audioSource) audioSource.stop(); } catch (_) {}
   pauseAllVideos();
+  state.isExporting = false;
   recorder.stop();
   await done;
   videoStream.getTracks().forEach((track) => track.stop());
@@ -1665,7 +1782,8 @@ async function exportVideo(kind = 'webm') {
   if (els.mp4VideoBtn) els.mp4VideoBtn.disabled = false;
   if (els.exportBtn) els.exportBtn.disabled = false;
   if (els.mp4PackageBtn) els.mp4PackageBtn.disabled = false;
-  setExportStatus(isMp4 ? 'Готово. MP4-видео скачано.' : 'Готово. WebM-черновик скачан.', 100);
+  state.exportBlurCache.clear();
+  setExportStatus(isMp4 ? `Готово. MP4 скачан: ${width}×${height}, ${fps} fps, ${(exportSettings.videoBitsPerSecond / 1000000).toFixed(1)} Mbps.` : 'Готово. WebM-черновик скачан.', 100);
 }
 
 els.mediaInput.addEventListener('change', (event) => addFiles(event.target.files));
@@ -1871,6 +1989,10 @@ els.deleteSavedProjectBtn?.addEventListener('click', deleteSavedProject);
 els.formatSelect.addEventListener('change', updatePreviewCanvasSize);
 els.customWidth.addEventListener('input', updatePreviewCanvasSize);
 els.customHeight.addEventListener('input', updatePreviewCanvasSize);
+els.exportPreset?.addEventListener('change', () => {
+  const settings = getExportSettings('mp4');
+  setExportStatus(`Режим экспорта: ${settings.label}`, 0);
+});
 
 function isTypingOrControlTarget(target) {
   if (!target) return false;
