@@ -12,6 +12,8 @@ const state = {
   raf: null,
   activeVideoId: null,
   editKeyframe: 'start',
+  autoAiOnImport: true,
+  ai: { loading: false, detector: null, module: null, usedFallback: false },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -32,6 +34,8 @@ const els = {
   clipScrubberBox: $('clipScrubberBox'), clipScrub: $('clipScrub'), clipScrubLabel: $('clipScrubLabel'),
   clipStartBtn: $('clipStartBtn'), clipMiddleBtn: $('clipMiddleBtn'), clipEndBtn: $('clipEndBtn'),
   editStartFrameBtn: $('editStartFrameBtn'), editEndFrameBtn: $('editEndFrameBtn'), editFrameHint: $('editFrameHint'),
+  autoAiOnAdd: $('autoAiOnAdd'), smartCropAllBtn: $('smartCropAllBtn'), smartCropSelectedBtn: $('smartCropSelectedBtn'),
+  portraitBackgroundBtn: $('portraitBackgroundBtn'), aiStatus: $('aiStatus'),
 };
 const previewCtx = els.previewCanvas.getContext('2d');
 
@@ -62,6 +66,408 @@ function clamp(value, min, max) {
   const n = Number(value);
   if (!Number.isFinite(n)) return min;
   return Math.max(min, Math.min(max, n));
+}
+
+
+function setAiStatus(text) {
+  if (els.aiStatus) els.aiStatus.textContent = text;
+}
+
+function getSourceSize(slide) {
+  if (!slide) return { width: 1, height: 1 };
+  const source = slide.source;
+  return {
+    width: slide.type === 'video' ? (source?.videoWidth || slide.width || 1) : (slide.width || source?.naturalWidth || 1),
+    height: slide.type === 'video' ? (source?.videoHeight || slide.height || 1) : (slide.height || source?.naturalHeight || 1),
+  };
+}
+
+async function loadFaceDetector() {
+  if (state.ai.detector) return state.ai.detector;
+  if (state.ai.usedFallback) return null;
+  if (state.ai.loading) {
+    while (state.ai.loading) await new Promise((resolve) => setTimeout(resolve, 120));
+    if (state.ai.detector) return state.ai.detector;
+  }
+  state.ai.loading = true;
+  setAiStatus('Загружаю бесплатную AI-модель распознавания лиц…');
+  try {
+    const imported = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm');
+    const vision = imported.default || imported;
+    const FilesetResolver = vision.FilesetResolver || imported.FilesetResolver;
+    const FaceDetector = vision.FaceDetector || imported.FaceDetector;
+    if (!FilesetResolver || !FaceDetector) throw new Error('MediaPipe API not found');
+    const fileset = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm');
+    const detector = await FaceDetector.createFromOptions(fileset, {
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite',
+        delegate: 'GPU',
+      },
+      runningMode: 'IMAGE',
+      minDetectionConfidence: 0.38,
+    });
+    state.ai.module = vision;
+    state.ai.detector = detector;
+    state.ai.loading = false;
+    setAiStatus('AI-модель готова. Теперь можно автоматически кадрировать лица.');
+    return detector;
+  } catch (gpuError) {
+    try {
+      const imported = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm');
+      const vision = imported.default || imported;
+      const FilesetResolver = vision.FilesetResolver || imported.FilesetResolver;
+      const FaceDetector = vision.FaceDetector || imported.FaceDetector;
+      const fileset = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm');
+      const detector = await FaceDetector.createFromOptions(fileset, {
+        baseOptions: {
+          modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite',
+          delegate: 'CPU',
+        },
+        runningMode: 'IMAGE',
+        minDetectionConfidence: 0.38,
+      });
+      state.ai.module = vision;
+      state.ai.detector = detector;
+      state.ai.loading = false;
+      setAiStatus('AI-модель готова в CPU-режиме.');
+      return detector;
+    } catch (error) {
+      console.warn('MediaPipe face detector unavailable', error);
+      state.ai.loading = false;
+      state.ai.usedFallback = true;
+      setAiStatus('AI-модель не загрузилась. Применю безопасный авто-режим без поиска лиц: центр + размытый фон для вертикальных фото.');
+      return null;
+    }
+  }
+}
+
+function normalizeFaceBox(box, sourceWidth, sourceHeight) {
+  if (!box) return null;
+  let x = Number(box.originX ?? box.xMin ?? box.x ?? 0);
+  let y = Number(box.originY ?? box.yMin ?? box.y ?? 0);
+  let w = Number(box.width ?? ((box.xMax ?? 0) - (box.xMin ?? 0)) ?? 0);
+  let h = Number(box.height ?? ((box.yMax ?? 0) - (box.yMin ?? 0)) ?? 0);
+  if (w <= 0 || h <= 0) return null;
+  if (Math.abs(x) <= 1.5 && Math.abs(y) <= 1.5 && w <= 1.5 && h <= 1.5) {
+    x *= sourceWidth;
+    w *= sourceWidth;
+    y *= sourceHeight;
+    h *= sourceHeight;
+  }
+  x = clamp(x, 0, sourceWidth);
+  y = clamp(y, 0, sourceHeight);
+  w = clamp(w, 1, sourceWidth - x);
+  h = clamp(h, 1, sourceHeight - y);
+  return { x, y, w, h };
+}
+
+function detectionsToFaceBoxes(result, sourceWidth, sourceHeight) {
+  const detections = result?.detections || [];
+  return detections
+    .map((detection) => normalizeFaceBox(detection.boundingBox, sourceWidth, sourceHeight))
+    .filter(Boolean)
+    .filter((box) => box.w * box.h > Math.max(80, sourceWidth * sourceHeight * 0.00008));
+}
+
+function unionBoxes(boxes) {
+  if (!boxes.length) return null;
+  const left = Math.min(...boxes.map((box) => box.x));
+  const top = Math.min(...boxes.map((box) => box.y));
+  const right = Math.max(...boxes.map((box) => box.x + box.w));
+  const bottom = Math.max(...boxes.map((box) => box.y + box.h));
+  return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
+function expandFaceFocusBox(faceUnion, sourceWidth, sourceHeight) {
+  if (!faceUnion) return null;
+  const marginX = Math.max(sourceWidth * 0.045, faceUnion.w * 0.62);
+  const marginTop = Math.max(sourceHeight * 0.06, faceUnion.h * 0.90);
+  const marginBottom = Math.max(sourceHeight * 0.11, faceUnion.h * 1.45);
+  const x = Math.max(0, faceUnion.x - marginX);
+  const y = Math.max(0, faceUnion.y - marginTop);
+  const right = Math.min(sourceWidth, faceUnion.x + faceUnion.w + marginX);
+  const bottom = Math.min(sourceHeight, faceUnion.y + faceUnion.h + marginBottom);
+  return { x, y, w: Math.max(1, right - x), h: Math.max(1, bottom - y) };
+}
+
+function makeCanvasSnapshot(source, width, height, maxSide = 1600) {
+  const scale = Math.min(1, maxSide / Math.max(width, height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+  return { canvas, scale };
+}
+
+async function detectFacesInImageLike(detector, source, sourceWidth, sourceHeight) {
+  if (!detector || !source) return [];
+  try {
+    const result = detector.detect(source);
+    return detectionsToFaceBoxes(result, sourceWidth, sourceHeight);
+  } catch (error) {
+    try {
+      const snapshot = makeCanvasSnapshot(source, sourceWidth, sourceHeight);
+      const result = detector.detect(snapshot.canvas);
+      return detectionsToFaceBoxes(result, snapshot.canvas.width, snapshot.canvas.height).map((box) => ({
+        x: box.x / snapshot.scale,
+        y: box.y / snapshot.scale,
+        w: box.w / snapshot.scale,
+        h: box.h / snapshot.scale,
+      }));
+    } catch (canvasError) {
+      console.warn('Face detection failed', error, canvasError);
+      return [];
+    }
+  }
+}
+
+function seekVideoTo(video, time) {
+  return new Promise((resolve) => {
+    if (!video || !Number.isFinite(video.duration)) return resolve();
+    const safeTime = Math.max(0, Math.min(Math.max(0, video.duration - 0.05), time));
+    if (Math.abs(video.currentTime - safeTime) < 0.04) return resolve();
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, 1800);
+    const cleanup = () => {
+      clearTimeout(timer);
+      video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('error', onSeeked);
+    };
+    const onSeeked = () => { cleanup(); resolve(); };
+    video.addEventListener('seeked', onSeeked, { once: true });
+    video.addEventListener('error', onSeeked, { once: true });
+    try { video.currentTime = safeTime; } catch (_) { cleanup(); resolve(); }
+  });
+}
+
+async function detectFacesForSlide(slide) {
+  if (!slide || !slide.source) return [];
+  const detector = await loadFaceDetector();
+  const { width, height } = getSourceSize(slide);
+  if (!detector) return [];
+  if (slide.type !== 'video') {
+    return detectFacesInImageLike(detector, slide.source, width, height);
+  }
+  const video = slide.source;
+  const wasPaused = video.paused;
+  try { video.pause(); } catch (_) {}
+  const originalTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+  const originalDuration = Math.max(0.1, Number(slide.originalDuration || video.duration || slide.duration || 1));
+  const times = [...new Set([
+    Math.min(0.2, Math.max(0, originalDuration - 0.1)),
+    originalDuration * 0.5,
+    Math.max(0, originalDuration - 0.25),
+  ].map((value) => Number(value.toFixed(2))))];
+  const all = [];
+  for (const time of times) {
+    await seekVideoTo(video, time);
+    const snapshot = makeCanvasSnapshot(video, width, height);
+    try {
+      const result = detector.detect(snapshot.canvas);
+      const boxes = detectionsToFaceBoxes(result, snapshot.canvas.width, snapshot.canvas.height).map((box) => ({
+        x: box.x / snapshot.scale,
+        y: box.y / snapshot.scale,
+        w: box.w / snapshot.scale,
+        h: box.h / snapshot.scale,
+      }));
+      all.push(...boxes);
+    } catch (error) {
+      console.warn('Video face detection failed', error);
+    }
+  }
+  await seekVideoTo(video, originalTime);
+  if (!wasPaused) video.play().catch(() => {});
+  return all;
+}
+
+function outputAspectDistance(sourceAspect, outputAspect) {
+  return Math.max(sourceAspect / outputAspect, outputAspect / sourceAspect);
+}
+
+function getBaseScaleForMode(mode, outputWidth, outputHeight, sourceWidth, sourceHeight) {
+  return mode === 'cover'
+    ? Math.max(outputWidth / sourceWidth, outputHeight / sourceHeight)
+    : Math.min(outputWidth / sourceWidth, outputHeight / sourceHeight);
+}
+
+function cropSizeInSource(mode, zoom, outputWidth, outputHeight, sourceWidth, sourceHeight) {
+  const baseScale = getBaseScaleForMode(mode, outputWidth, outputHeight, sourceWidth, sourceHeight);
+  const scale = Math.max(0.0001, baseScale * Math.max(0.25, Number(zoom) || 1));
+  return { cropW: outputWidth / scale, cropH: outputHeight / scale, scale };
+}
+
+function fitCenterToKeepBoxVisible(target, focusBox, cropSize, sourceSize) {
+  if (cropSize >= sourceSize) return sourceSize / 2;
+  const imageMin = cropSize / 2;
+  const imageMax = sourceSize - cropSize / 2;
+  const boxMin = focusBox.x + focusBox.w - cropSize / 2;
+  const boxMax = focusBox.x + cropSize / 2;
+  const lo = Math.max(imageMin, boxMin);
+  const hi = Math.min(imageMax, boxMax);
+  if (lo > hi) return clamp(target, imageMin, imageMax);
+  return clamp(target, lo, hi);
+}
+
+function yFocusBox(box) {
+  return { x: box.y, y: box.x, w: box.h, h: box.w };
+}
+
+function panForSourceCenter(centerX, centerY, mode, zoom, outputWidth, outputHeight, sourceWidth, sourceHeight) {
+  const baseScale = getBaseScaleForMode(mode, outputWidth, outputHeight, sourceWidth, sourceHeight);
+  const scale = baseScale * Math.max(0.25, Number(zoom) || 1);
+  const drawW = sourceWidth * scale;
+  const drawH = sourceHeight * scale;
+  const freeX = Math.max(1, Math.abs(drawW - outputWidth) / 2);
+  const freeY = Math.max(1, Math.abs(drawH - outputHeight) / 2);
+  return {
+    x: clamp(((sourceWidth / 2 - centerX) * scale / freeX) * 100, -300, 300),
+    y: clamp(((sourceHeight / 2 - centerY) * scale / freeY) * 100, -300, 300),
+  };
+}
+
+function computeSmartCrop(slide, faceBoxes = []) {
+  const { width: sourceWidth, height: sourceHeight } = getSourceSize(slide);
+  const [outputWidth, outputHeight] = getOutputSize();
+  const sourceAspect = sourceWidth / sourceHeight;
+  const outputAspect = outputWidth / outputHeight;
+  const mismatch = outputAspectDistance(sourceAspect, outputAspect);
+  const faceUnion = unionBoxes(faceBoxes);
+  const focusBox = expandFaceFocusBox(faceUnion, sourceWidth, sourceHeight);
+  const forceBlurBackground = mismatch > 1.55 || (sourceHeight > sourceWidth * 1.12 && outputWidth > outputHeight);
+  let mode = forceBlurBackground ? 'containBlur' : 'cover';
+
+  if (!focusBox) {
+    return {
+      mode,
+      zoomStart: 1,
+      zoomEnd: slide.type === 'video' ? 1 : (mode === 'containBlur' ? 1.04 : 1.08),
+      panStartX: 0,
+      panStartY: 0,
+      panEndX: 0,
+      panEndY: 0,
+      summary: forceBlurBackground ? 'лиц не найдено · фон добавлен' : 'лиц не найдено · центр',
+      faceBoxes: [],
+    };
+  }
+
+  let baseScale = getBaseScaleForMode(mode, outputWidth, outputHeight, sourceWidth, sourceHeight);
+  let safeZoomMax = Math.min(outputWidth / (baseScale * focusBox.w), outputHeight / (baseScale * focusBox.h)) * 0.96;
+  if (mode === 'cover') {
+    const coverScale = Math.max(outputWidth / sourceWidth, outputHeight / sourceHeight);
+    const containScale = Math.min(outputWidth / sourceWidth, outputHeight / sourceHeight);
+    const minZoomToKeepCover = containScale / coverScale;
+    if (safeZoomMax < Math.max(0.72, minZoomToKeepCover + 0.02)) {
+      mode = 'containBlur';
+      baseScale = getBaseScaleForMode(mode, outputWidth, outputHeight, sourceWidth, sourceHeight);
+      safeZoomMax = Math.min(outputWidth / (baseScale * focusBox.w), outputHeight / (baseScale * focusBox.h)) * 0.96;
+    }
+  }
+
+  const zoomStart = clamp(Math.min(1, Math.max(0.82, safeZoomMax)), 0.25, 4);
+  const zoomEnd = slide.type === 'video'
+    ? zoomStart
+    : clamp(Math.min(1.08, Math.max(zoomStart, safeZoomMax)), 0.25, 4);
+  const targetFaceCenterX = faceUnion.x + faceUnion.w / 2;
+  const targetFaceCenterY = faceUnion.y + faceUnion.h / 2;
+
+  function keyframePan(zoom) {
+    const { cropW, cropH } = cropSizeInSource(mode, zoom, outputWidth, outputHeight, sourceWidth, sourceHeight);
+    const cx = fitCenterToKeepBoxVisible(targetFaceCenterX, focusBox, cropW, sourceWidth);
+    const cy = fitCenterToKeepBoxVisible(targetFaceCenterY, yFocusBox(focusBox), cropH, sourceHeight);
+    return panForSourceCenter(cx, cy, mode, zoom, outputWidth, outputHeight, sourceWidth, sourceHeight);
+  }
+
+  const startPan = keyframePan(zoomStart);
+  const endPan = keyframePan(zoomEnd);
+  return {
+    mode,
+    zoomStart,
+    zoomEnd,
+    panStartX: startPan.x,
+    panStartY: startPan.y,
+    panEndX: endPan.x,
+    panEndY: endPan.y,
+    summary: `${faceBoxes.length} лиц(а) · safe crop`,
+    faceBoxes,
+  };
+}
+
+function applySmartCropResult(slide, result) {
+  slide.backgroundMode = result.mode;
+  slide.zoomStart = result.zoomStart;
+  slide.zoomEnd = result.zoomEnd;
+  slide.panStartX = result.panStartX;
+  slide.panStartY = result.panStartY;
+  slide.panEndX = result.panEndX;
+  slide.panEndY = result.panEndY;
+  slide.panX = state.editKeyframe === 'end' ? result.panEndX : result.panStartX;
+  slide.panY = state.editKeyframe === 'end' ? result.panEndY : result.panStartY;
+  slide.faceBoxes = result.faceBoxes || [];
+  slide.aiSummary = result.summary;
+  slide.aiCroppedAt = new Date().toISOString();
+}
+
+async function smartCropSlides(slides, options = {}) {
+  const targets = slides.filter(Boolean);
+  if (!targets.length) {
+    setAiStatus('Нет кадров для AI-обработки.');
+    return;
+  }
+  stopPreview(false);
+  const previousSelectedId = selectedSlide()?.id || null;
+  if (els.smartCropAllBtn) els.smartCropAllBtn.disabled = true;
+  if (els.smartCropSelectedBtn) els.smartCropSelectedBtn.disabled = true;
+  setAiStatus(`AI анализирует лица: 0 / ${targets.length}…`);
+  let withFaces = 0;
+  for (let i = 0; i < targets.length; i += 1) {
+    const slide = targets[i];
+    setAiStatus(`AI анализирует: ${i + 1} / ${targets.length} — ${slide.name}`);
+    let faces = [];
+    try {
+      faces = await detectFacesForSlide(slide);
+    } catch (error) {
+      console.warn('Smart crop failed for', slide.name, error);
+      faces = [];
+    }
+    if (faces.length) withFaces += 1;
+    const result = computeSmartCrop(slide, faces);
+    applySmartCropResult(slide, result);
+    setExportStatus(`AI обработал ${i + 1}/${targets.length}`, ((i + 1) / targets.length) * 100);
+  }
+  if (previousSelectedId) {
+    const idx = state.slides.findIndex((slide) => slide.id === previousSelectedId);
+    if (idx >= 0) state.selectedIndex = idx;
+  }
+  syncControls();
+  renderAll();
+  renderSelectionState();
+  setAiStatus(`Готово: AI обработал ${targets.length} кадр(ов), лица найдены в ${withFaces}. Вертикальные/неудобные фото получили размытый фон.`);
+  setExportStatus('AI авто-кадрирование готово.', 100);
+  if (els.smartCropAllBtn) els.smartCropAllBtn.disabled = false;
+  if (els.smartCropSelectedBtn) els.smartCropSelectedBtn.disabled = false;
+}
+
+function applyPortraitBackgroundToSlides(slides = state.slides) {
+  const [outputWidth, outputHeight] = getOutputSize();
+  const outputAspect = outputWidth / outputHeight;
+  let changed = 0;
+  slides.forEach((slide) => {
+    const { width, height } = getSourceSize(slide);
+    const sourceAspect = width / height;
+    if (outputAspectDistance(sourceAspect, outputAspect) > 1.45 || (height > width * 1.12 && outputWidth > outputHeight)) {
+      slide.backgroundMode = 'containBlur';
+      slide.zoomStart = Math.min(Number(slide.zoomStart || 1), 1);
+      slide.zoomEnd = Math.min(Number(slide.zoomEnd || 1.04), slide.type === 'video' ? 1 : 1.04);
+      slide.aiSummary = slide.aiSummary || 'фон для вертикального';
+      changed += 1;
+    }
+  });
+  syncControls();
+  renderAll();
+  setAiStatus(changed ? `Фон включён для ${changed} вертикальных/нестандартных кадр(ов).` : 'Не нашёл кадров, которым нужен фон.');
 }
 
 function selectedSlide() {
@@ -156,10 +562,11 @@ async function addFiles(fileList) {
   const files = [...fileList].filter((file) => file.type.startsWith('image/') || file.type.startsWith('video/'));
   if (!files.length) return;
   setExportStatus(`Загружаю ${files.length} файл(ов)…`, 0);
+  const addedSlides = [];
   for (const file of files) {
     try {
       const loaded = file.type.startsWith('video/') ? await loadVideoFromFile(file) : await loadImageFromFile(file);
-      state.slides.push({
+      const slide = {
         id: uid(),
         file,
         name: file.name,
@@ -174,7 +581,11 @@ async function addFiles(fileList) {
         zoomEnd: loaded.type === 'video' ? 1 : 1.08,
         duration: loaded.type === 'video' ? loaded.originalDuration : 4,
         backgroundMode: 'cover',
-      });
+        faceBoxes: [],
+        aiSummary: '',
+      };
+      state.slides.push(slide);
+      addedSlides.push(slide);
     } catch (error) {
       console.warn('Cannot load media', file.name, error);
       setExportStatus(`Не удалось загрузить: ${file.name}`, 0);
@@ -184,7 +595,10 @@ async function addFiles(fileList) {
   if (state.audioDuration) fitToMusic(false);
   setExportStatus('Файлы добавлены.', 0);
   renderAll();
-renderSelectionState();
+  renderSelectionState();
+  if (addedSlides.length && els.autoAiOnAdd?.checked) {
+    await smartCropSlides(addedSlides, { reason: 'import' });
+  }
 }
 
 function fitToMusic(showMessage = true) {
@@ -237,6 +651,7 @@ function renderSlideList() {
       ? `<img src="${slide.thumbUrl}" alt="" />`
       : `<span class="thumb-fallback">${slide.type === 'video' ? '▶' : 'IMG'}</span>`;
     const kind = slide.type === 'video' ? 'Видео' : 'Фото';
+    const aiInfo = slide.aiSummary ? ` · AI: ${escapeHtml(slide.aiSummary)}` : '';
     card.innerHTML = `
       <label class="slide-check" title="Выбрать для удаления">
         <input type="checkbox" ${state.selectedIds.has(slide.id) ? 'checked' : ''} />
@@ -244,7 +659,7 @@ function renderSlideList() {
       ${thumbHtml}
       <span class="slide-title">
         <strong>${index + 1}. ${escapeHtml(slide.name)}</strong>
-        <span>${kind} · ${slide.width}×${slide.height} · ${Number(slide.duration).toFixed(1)} сек.</span>
+        <span>${kind} · ${slide.width}×${slide.height} · ${Number(slide.duration).toFixed(1)} сек.${aiInfo}</span>
       </span>
       <span class="slide-actions">
         <button type="button" title="Выше">↑</button>
@@ -299,6 +714,8 @@ function renderSelectionState() {
     els.selectAllBtn.disabled = state.slides.length === 0;
     els.selectAllBtn.textContent = selected && selected === state.slides.length ? 'Снять выбор' : 'Выбрать все';
   }
+  if (els.smartCropAllBtn) els.smartCropAllBtn.disabled = state.slides.length === 0;
+  if (els.portraitBackgroundBtn) els.portraitBackgroundBtn.disabled = state.slides.length === 0;
 }
 
 function toggleSlideChecked(id, checked, index = -1) {
@@ -411,7 +828,7 @@ function timeAtSlide(index) {
 function syncControls() {
   const slide = selectedSlide();
   const disabled = !slide;
-  [els.panX, els.panY, els.zoomStart, els.zoomEnd, els.duration, els.backgroundMode, els.resetSlideBtn, els.fitWholeBtn, els.coverBtn, els.softZoomBtn, els.editStartFrameBtn, els.editEndFrameBtn].forEach((el) => { if (el) el.disabled = disabled; });
+  [els.panX, els.panY, els.zoomStart, els.zoomEnd, els.duration, els.backgroundMode, els.resetSlideBtn, els.fitWholeBtn, els.coverBtn, els.softZoomBtn, els.editStartFrameBtn, els.editEndFrameBtn, els.smartCropSelectedBtn].forEach((el) => { if (el) el.disabled = disabled; });
   if (!slide) {
     updateKeyframeUi();
     updateControlLabels();
@@ -633,7 +1050,8 @@ function drawCurrentPreview() {
   prepareVideoForDraw(current.slide, current.localTime, false);
   drawSlide(previewCtx, current.slide, current.progress, els.previewCanvas.width, els.previewCanvas.height);
   const kind = current.slide.type === 'video' ? 'Видео' : 'Фото';
-  els.currentInfo.textContent = `${current.index + 1}/${state.slides.length}: ${kind} · ${current.slide.name}`;
+  const aiInfo = current.slide.aiSummary ? ` · AI: ${current.slide.aiSummary}` : '';
+  els.currentInfo.textContent = `${current.index + 1}/${state.slides.length}: ${kind} · ${current.slide.name}${aiInfo}`;
   const total = totalDuration();
   els.previewProgress.style.width = total ? `${Math.min(100, (state.previewTimeOffset / total) * 100)}%` : '0%';
   els.timeLabel.textContent = `${formatTime(state.previewTimeOffset)} / ${formatTime(total)}`;
@@ -851,7 +1269,7 @@ async function idbDelete(key) {
 
 function makeProjectSnapshot() {
   return {
-    version: 3,
+    version: 4,
     savedAt: new Date().toISOString(),
     settings: {
       format: els.formatSelect.value,
@@ -882,6 +1300,9 @@ function makeProjectSnapshot() {
       duration: slide.duration,
       backgroundMode: slide.backgroundMode,
       originalDuration: slide.originalDuration,
+      faceBoxes: slide.faceBoxes || [],
+      aiSummary: slide.aiSummary || '',
+      aiCroppedAt: slide.aiCroppedAt || '',
     })),
   };
 }
@@ -963,6 +1384,9 @@ async function loadProjectFromBrowser() {
           duration: Number(item.duration || loaded.originalDuration || 4),
           backgroundMode: item.backgroundMode || 'cover',
           originalDuration: Number(item.originalDuration || loaded.originalDuration || 4),
+          faceBoxes: Array.isArray(item.faceBoxes) ? item.faceBoxes : [],
+          aiSummary: item.aiSummary || '',
+          aiCroppedAt: item.aiCroppedAt || '',
         });
       } catch (error) {
         console.warn('Cannot restore media', item.name, error);
@@ -1430,7 +1854,19 @@ els.deleteSelectedBtn?.addEventListener('click', deleteSelectedSlides);
 els.saveProjectBtn?.addEventListener('click', saveProjectToBrowser);
 els.loadProjectBtn?.addEventListener('click', loadProjectFromBrowser);
 els.deleteSavedProjectBtn?.addEventListener('click', deleteSavedProject);
-els.formatSelect.addEventListener('change', updatePreviewCanvasSize);
+els.autoAiOnAdd?.addEventListener('change', () => {
+  state.autoAiOnImport = Boolean(els.autoAiOnAdd.checked);
+  setAiStatus(state.autoAiOnImport ? 'AI будет автоматически обрабатывать новые фото/видео после загрузки.' : 'Авто-AI выключен. Можно запускать вручную кнопкой AI обработать все.');
+});
+els.smartCropAllBtn?.addEventListener('click', () => smartCropSlides(state.slides));
+els.smartCropSelectedBtn?.addEventListener('click', () => smartCropSlides(selectedSlide() ? [selectedSlide()] : []));
+els.portraitBackgroundBtn?.addEventListener('click', () => applyPortraitBackgroundToSlides(state.selectedIds.size ? state.slides.filter((slide) => state.selectedIds.has(slide.id)) : state.slides));
+els.formatSelect.addEventListener('change', () => {
+  updatePreviewCanvasSize();
+  if (state.slides.some((slide) => slide.aiSummary)) {
+    setAiStatus('Формат изменён. Для точного safe crop лучше снова нажать “AI обработать все”.');
+  }
+});
 els.customWidth.addEventListener('input', updatePreviewCanvasSize);
 els.customHeight.addEventListener('input', updatePreviewCanvasSize);
 

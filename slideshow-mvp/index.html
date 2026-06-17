@@ -12,7 +12,7 @@
       <div>
         <p class="eyebrow">Локальное веб-приложение</p>
         <h1>Family Slideshow Maker</h1>
-        <p class="subtitle">Фото + видео + музыка → слайдшоу с ручным кадрированием, форматами 16:9 / 4:3 / 1:1 / вертикальный и мягким зумом.</p>
+        <p class="subtitle">Фото + видео + музыка → слайдшоу с ручным кадрированием, форматами 16:9 / 4:3 / 1:1 / вертикальный, мягким зумом и бесплатным AI-фокусом на лицах.</p>
       </div>
       <div class="privacy-card">
         <strong>Файлы не загружаются на сервер</strong>
@@ -51,7 +51,7 @@
           <input id="mediaInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime,video/*" multiple />
           <span class="drop-icon">＋</span>
           <strong>Выбрать или перетащить фото/видео</strong>
-          <small>JPG / PNG / WebP / MP4 / MOV / WebM. Звук видео в MVP отключается, используется выбранная музыка.</small>
+          <small>JPG / PNG / WebP / MP4 / MOV / WebM. Звук видео в MVP отключается, используется выбранная музыка. AI-обработка лиц работает локально в браузере.</small>
         </label>
 
         <label class="audio-picker">
@@ -152,6 +152,25 @@
             <button class="secondary" id="fitWholeBtn" type="button">Вписать целиком</button>
             <button class="secondary" id="coverBtn" type="button">Заполнить кадр</button>
             <button class="secondary" id="softZoomBtn" type="button">Мягкий зум</button>
+          </div>
+
+          <div class="ai-tools">
+            <div class="ai-tools-head">
+              <div>
+                <strong>AI авто-фокус на лицах</strong>
+                <span>Бесплатно и локально: фото не отправляются на сервер, модель загружается в браузер.</span>
+              </div>
+              <label class="toggle-row">
+                <input id="autoAiOnAdd" type="checkbox" checked />
+                <span>Авто после загрузки</span>
+              </label>
+            </div>
+            <div class="ai-actions">
+              <button class="secondary" id="smartCropAllBtn" type="button">AI обработать все</button>
+              <button class="secondary" id="smartCropSelectedBtn" type="button">AI выбранный кадр</button>
+              <button class="ghost" id="portraitBackgroundBtn" type="button">Фон для вертикальных</button>
+            </div>
+            <p class="hint" id="aiStatus">AI найдёт лица и подберёт зум/позицию так, чтобы лица не обрезались в начале и конце кадра.</p>
           </div>
 
           <div class="keyframe-switch">
