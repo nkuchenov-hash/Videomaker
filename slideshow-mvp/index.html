@@ -65,11 +65,14 @@
         </div>
 
         <div class="project-actions">
-          <button class="secondary" id="saveProjectBtn" type="button">Сохранить проект</button>
-          <button class="secondary" id="loadProjectBtn" type="button">Открыть сохранённый</button>
+          <button class="secondary" id="saveProjectBtn" type="button">Сохранить здесь</button>
+          <button class="secondary" id="loadProjectBtn" type="button">Открыть здесь</button>
+          <button class="secondary" id="exportProjectBtn" type="button">Скачать проект</button>
+          <button class="secondary" id="importProjectBtn" type="button">Открыть проект-файл</button>
           <button class="ghost" id="deleteSavedProjectBtn" type="button">Удалить сохранение</button>
+          <input id="projectFileInput" type="file" accept=".zip,application/zip,application/x-zip-compressed" hidden />
         </div>
-        <p class="hint" id="projectStatus">Сохранение остаётся в этом браузере.</p>
+        <p class="hint" id="projectStatus">«Скачать проект» переносит всё вместе с фото/видео/музыкой.</p>
 
         <button class="secondary full" id="fitToMusicBtn" type="button">Подогнать фото под длину музыки</button>
         <p class="hint">Видео сохраняют длительность, фото подгоняются под музыку.</p>

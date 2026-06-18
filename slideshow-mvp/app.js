@@ -36,7 +36,7 @@ const els = {
   formatSelect: $('formatSelect'), customSizeBox: $('customSizeBox'), customWidth: $('customWidth'), customHeight: $('customHeight'), fpsSelect: $('fpsSelect'), exportPreset: $('exportPreset'), exportBtn: $('exportBtn'), mp4VideoBtn: $('mp4VideoBtn'), mp4PackageBtn: $('mp4PackageBtn'),
   exportProgress: $('exportProgress'), exportStatusText: $('exportStatusText'), audioPreview: $('audioPreview'),
   selectedCount: $('selectedCount'), selectAllBtn: $('selectAllBtn'), deleteSelectedBtn: $('deleteSelectedBtn'),
-  saveProjectBtn: $('saveProjectBtn'), loadProjectBtn: $('loadProjectBtn'), deleteSavedProjectBtn: $('deleteSavedProjectBtn'), projectStatus: $('projectStatus'),
+  saveProjectBtn: $('saveProjectBtn'), loadProjectBtn: $('loadProjectBtn'), deleteSavedProjectBtn: $('deleteSavedProjectBtn'), exportProjectBtn: $('exportProjectBtn'), importProjectBtn: $('importProjectBtn'), projectFileInput: $('projectFileInput'), projectStatus: $('projectStatus'),
   clipScrubberBox: $('clipScrubberBox'), clipScrub: $('clipScrub'), clipScrubLabel: $('clipScrubLabel'),
   clipStartBtn: $('clipStartBtn'), clipMiddleBtn: $('clipMiddleBtn'), clipEndBtn: $('clipEndBtn'),
   positionStartBtn: $('positionStartBtn'), positionEndBtn: $('positionEndBtn'), previewEditHint: $('previewEditHint'),
@@ -1193,6 +1193,7 @@ function makeProjectSnapshot() {
       customWidth: Number(els.customWidth.value) || 1920,
       customHeight: Number(els.customHeight.value) || 1080,
       fps: els.fpsSelect.value,
+      exportPreset: els.exportPreset?.value || 'smooth1080',
     },
     audio: state.audioFile ? {
       file: state.audioFile,
@@ -1260,7 +1261,8 @@ async function loadProjectFromBrowser() {
       els.formatSelect.value = project.settings.format || '1920x1080';
       els.customWidth.value = project.settings.customWidth || 1920;
       els.customHeight.value = project.settings.customHeight || 1080;
-      els.fpsSelect.value = project.settings.fps || '30';
+      els.fpsSelect.value = project.settings.fps || '24';
+      if (els.exportPreset) els.exportPreset.value = project.settings.exportPreset || 'smooth1080';
     }
 
     if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
@@ -1323,6 +1325,263 @@ async function deleteSavedProject() {
   } catch (error) {
     console.error(error);
     setProjectStatus('Не получилось удалить сохранение.');
+  }
+}
+
+function mimeFromName(name, fallbackType = '') {
+  const lower = String(name || '').toLowerCase();
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  if (lower.endsWith('.mp4') || lower.endsWith('.m4v')) return 'video/mp4';
+  if (lower.endsWith('.mov')) return 'video/quicktime';
+  if (lower.endsWith('.webm')) return 'video/webm';
+  if (lower.endsWith('.mp3')) return 'audio/mpeg';
+  if (lower.endsWith('.m4a')) return 'audio/mp4';
+  if (lower.endsWith('.wav')) return 'audio/wav';
+  if (lower.endsWith('.ogg')) return 'audio/ogg';
+  return fallbackType || 'application/octet-stream';
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+function setImportedSettings(settings = {}) {
+  if (!settings) return;
+  const width = Number(settings.width || settings.customWidth || 1920);
+  const height = Number(settings.height || settings.customHeight || 1080);
+  const format = settings.format;
+  const optionValues = [...els.formatSelect.options].map((option) => option.value);
+  if (format && optionValues.includes(format)) {
+    els.formatSelect.value = format;
+  } else {
+    const sizeValue = `${width}x${height}`;
+    els.formatSelect.value = optionValues.includes(sizeValue) ? sizeValue : 'custom';
+  }
+  els.customWidth.value = width;
+  els.customHeight.value = height;
+  els.fpsSelect.value = String(settings.fps || 24);
+  if (els.exportPreset) els.exportPreset.value = settings.exportPreset || 'smooth1080';
+}
+
+function resetCurrentProjectForImport() {
+  stopPreview(true);
+  state.slides.forEach(revokeSlideUrls);
+  state.slides = [];
+  state.selectedIds.clear();
+  state.lastSelectionAnchor = -1;
+  state.selectedIndex = -1;
+  state.previewTimeOffset = 0;
+  if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
+  state.audioFile = null;
+  state.audioUrl = null;
+  state.audioDuration = 0;
+  els.audioPreview.removeAttribute('src');
+}
+
+async function loadAudioFileIntoProject(file, fallbackDuration = 0) {
+  state.audioFile = file;
+  if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
+  state.audioUrl = URL.createObjectURL(file);
+  els.audioPreview.src = state.audioUrl;
+  try {
+    await waitForEvent(els.audioPreview, 'loadedmetadata', 8000);
+    state.audioDuration = els.audioPreview.duration || fallbackDuration || 0;
+  } catch (_) {
+    state.audioDuration = fallbackDuration || 0;
+  }
+}
+
+async function addImportedSlide(item, file) {
+  const loaded = item.type === 'video' ? await loadVideoFromFile(file) : await loadImageFromFile(file);
+  state.slides.push({
+    id: item.id || uid(),
+    file,
+    name: item.name || file?.name || 'media',
+    ...loaded,
+    panX: Number(item.panX || item.panStartX || 0),
+    panY: Number(item.panY || item.panStartY || 0),
+    panStartX: Number(item.panStartX ?? item.panX ?? 0),
+    panStartY: Number(item.panStartY ?? item.panY ?? 0),
+    panEndX: Number(item.panEndX ?? item.panX ?? 0),
+    panEndY: Number(item.panEndY ?? item.panY ?? 0),
+    zoomStart: Number(item.zoomStart ?? 1),
+    zoomEnd: Number(item.zoomEnd ?? (loaded.type === 'video' ? 1 : 1.08)),
+    duration: Number(item.duration || loaded.originalDuration || 4),
+    backgroundMode: item.backgroundMode || 'cover',
+    originalDuration: Number(item.originalDuration || loaded.originalDuration || 4),
+    aiStatus: item.aiStatus || '',
+  });
+}
+
+async function exportPortableProject() {
+  if (!state.slides.length && !state.audioFile) {
+    setProjectStatus('Сначала добавь фото/видео или музыку.');
+    return;
+  }
+  if (!window.JSZip) {
+    setProjectStatus('Не загрузилась библиотека ZIP. Проверь интернет и обнови страницу Ctrl+F5.');
+    return;
+  }
+  try {
+    if (els.exportProjectBtn) els.exportProjectBtn.disabled = true;
+    setProjectStatus('Собираю переносимый проект…');
+    const zip = new JSZip();
+    const assets = zip.folder('assets');
+    const usedNames = new Set();
+    const [width, height] = getOutputSize();
+
+    const slides = state.slides.map((slide, index) => {
+      const assetName = uniqueAssetName(usedNames, index, slide.file, slide.type);
+      assets.file(assetName, slide.file);
+      return {
+        index,
+        id: slide.id,
+        type: slide.type,
+        name: slide.name,
+        asset: assetName,
+        fileType: slide.file?.type || mimeFromName(slide.name, slide.type === 'video' ? 'video/mp4' : 'image/jpeg'),
+        size: slide.file?.size || 0,
+        lastModified: slide.file?.lastModified || 0,
+        width: slide.width,
+        height: slide.height,
+        duration: Number(slide.duration || slide.originalDuration || 4),
+        originalDuration: Number(slide.originalDuration || slide.duration || 4),
+        panX: Number(slide.panX || 0),
+        panY: Number(slide.panY || 0),
+        panStartX: Number(slide.panStartX ?? slide.panX ?? 0),
+        panStartY: Number(slide.panStartY ?? slide.panY ?? 0),
+        panEndX: Number(slide.panEndX ?? slide.panX ?? 0),
+        panEndY: Number(slide.panEndY ?? slide.panY ?? 0),
+        zoomStart: Number(slide.zoomStart ?? 1),
+        zoomEnd: Number(slide.zoomEnd ?? (slide.type === 'video' ? 1 : 1.08)),
+        backgroundMode: slide.backgroundMode || 'cover',
+        aiStatus: slide.aiStatus || '',
+      };
+    });
+
+    let audio = null;
+    if (state.audioFile) {
+      const audioName = uniqueAssetName(usedNames, state.slides.length, state.audioFile, 'audio');
+      assets.file(audioName, state.audioFile);
+      audio = {
+        name: state.audioFile.name,
+        asset: audioName,
+        type: state.audioFile.type || mimeFromName(state.audioFile.name, 'audio/mpeg'),
+        size: state.audioFile.size || 0,
+        lastModified: state.audioFile.lastModified || 0,
+        duration: Number(state.audioDuration || 0),
+      };
+    }
+
+    const project = {
+      version: 5,
+      kind: 'portable-project',
+      app: 'Family Slideshow Maker',
+      exportedAt: new Date().toISOString(),
+      settings: {
+        width,
+        height,
+        format: els.formatSelect.value,
+        customWidth: Number(els.customWidth.value) || width,
+        customHeight: Number(els.customHeight.value) || height,
+        fps: els.fpsSelect.value,
+        exportPreset: els.exportPreset?.value || 'smooth1080',
+      },
+      audio,
+      slides,
+    };
+
+    zip.file('project.json', JSON.stringify(project, null, 2));
+    zip.file('README_PROJECT.txt', 'Family Slideshow Maker portable project. Open this ZIP through the app button: Открыть проект-файл. Media files are included in assets/. Nothing is uploaded to a server.');
+
+    const blob = await zip.generateAsync(
+      { type: 'blob', compression: 'STORE' },
+      (meta) => setProjectStatus(`Упаковка проекта: ${Math.round(meta.percent)}%`)
+    );
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    downloadBlob(blob, `slideshow-project-${stamp}.zip`);
+    setProjectStatus('Переносимый проект скачан. Его можно открыть на другом компьютере.');
+  } catch (error) {
+    console.error(error);
+    setProjectStatus('Не удалось скачать проект. Возможно, браузеру не хватает памяти для больших видео.');
+  } finally {
+    if (els.exportProjectBtn) els.exportProjectBtn.disabled = false;
+  }
+}
+
+async function importPortableProject(file) {
+  if (!file) return;
+  if (!window.JSZip) {
+    setProjectStatus('Не загрузилась библиотека ZIP. Проверь интернет и обнови страницу Ctrl+F5.');
+    return;
+  }
+  try {
+    setProjectStatus('Открываю проект-файл…');
+    const zip = await JSZip.loadAsync(file);
+    const projectEntry = zip.file('project.json');
+    if (!projectEntry) {
+      setProjectStatus('В ZIP нет project.json. Это не проект слайдшоу.');
+      return;
+    }
+    const project = JSON.parse(await projectEntry.async('string'));
+    resetCurrentProjectForImport();
+    setImportedSettings(project.settings || {});
+
+    if (project.audio && project.audio.asset) {
+      const entry = zip.file(`assets/${project.audio.asset}`) || zip.file(project.audio.asset);
+      if (entry) {
+        const blob = await entry.async('blob');
+        const audioFile = new File([blob], project.audio.name || project.audio.asset, {
+          type: project.audio.type || mimeFromName(project.audio.name || project.audio.asset, 'audio/mpeg'),
+          lastModified: project.audio.lastModified || Date.now(),
+        });
+        await loadAudioFileIntoProject(audioFile, Number(project.audio.duration || 0));
+      }
+    }
+
+    let restored = 0;
+    for (const item of project.slides || []) {
+      const asset = item.asset;
+      const entry = asset ? (zip.file(`assets/${asset}`) || zip.file(asset)) : null;
+      if (!entry) {
+        console.warn('Missing asset', item.name || asset);
+        continue;
+      }
+      try {
+        const blob = await entry.async('blob');
+        const mediaFile = new File([blob], item.name || asset, {
+          type: item.fileType || mimeFromName(item.name || asset, item.type === 'video' ? 'video/mp4' : 'image/jpeg'),
+          lastModified: item.lastModified || Date.now(),
+        });
+        await addImportedSlide(item, mediaFile);
+        restored += 1;
+        setProjectStatus(`Открываю проект: ${restored}/${(project.slides || []).length}`);
+      } catch (error) {
+        console.warn('Cannot import slide', item.name || asset, error);
+      }
+    }
+
+    state.selectedIndex = state.slides.length ? 0 : -1;
+    state.previewTimeOffset = 0;
+    updatePreviewCanvasSize();
+    renderAll();
+    renderSelectionState();
+    setProjectStatus(`Проект-файл открыт. Кадров: ${state.slides.length}.`);
+  } catch (error) {
+    console.error(error);
+    setProjectStatus('Не получилось открыть проект-файл. Возможно, ZIP повреждён или слишком большой для браузера.');
+  } finally {
+    if (els.projectFileInput) els.projectFileInput.value = '';
   }
 }
 
@@ -1985,6 +2244,9 @@ els.selectAllBtn?.addEventListener('click', selectAllOrNone);
 els.deleteSelectedBtn?.addEventListener('click', deleteSelectedSlides);
 els.saveProjectBtn?.addEventListener('click', saveProjectToBrowser);
 els.loadProjectBtn?.addEventListener('click', loadProjectFromBrowser);
+els.exportProjectBtn?.addEventListener('click', exportPortableProject);
+els.importProjectBtn?.addEventListener('click', () => els.projectFileInput?.click());
+els.projectFileInput?.addEventListener('change', (event) => importPortableProject(event.target.files?.[0]));
 els.deleteSavedProjectBtn?.addEventListener('click', deleteSavedProject);
 els.formatSelect.addEventListener('change', updatePreviewCanvasSize);
 els.customWidth.addEventListener('input', updatePreviewCanvasSize);
