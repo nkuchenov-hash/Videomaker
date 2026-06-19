@@ -38,12 +38,13 @@ const els = {
   selectedCount: $('selectedCount'), selectAllBtn: $('selectAllBtn'), deleteSelectedBtn: $('deleteSelectedBtn'),
   saveProjectBtn: $('saveProjectBtn'), loadProjectBtn: $('loadProjectBtn'), deleteSavedProjectBtn: $('deleteSavedProjectBtn'), projectStatus: $('projectStatus'),
   clipScrubberBox: $('clipScrubberBox'), clipScrub: $('clipScrub'), clipScrubLabel: $('clipScrubLabel'),
-  clipStartBtn: $('clipStartBtn'), clipMiddleBtn: $('clipMiddleBtn'), clipEndBtn: $('clipEndBtn'),
+  clipStartBtn: $('clipStartBtn'), clipEndBtn: $('clipEndBtn'),
   positionStartBtn: $('positionStartBtn'), positionEndBtn: $('positionEndBtn'), previewEditHint: $('previewEditHint'),
   aiSelectedBtn: $('aiSelectedBtn'), aiAllBtn: $('aiAllBtn'), verticalBgBtn: $('verticalBgBtn'),
   aiAutoForNew: $('aiAutoForNew'), aiStatus: $('aiStatus'),
-  captionText: $('captionText'), captionPosition: $('captionPosition'), captionSize: $('captionSize'), captionSizeValue: $('captionSizeValue'),
-  captionOpacity: $('captionOpacity'), captionOpacityValue: $('captionOpacityValue'), captionColor: $('captionColor'), darken: $('darken'), darkenValue: $('darkenValue'),
+  captionText: $('captionText'), captionX: $('captionX'), captionY: $('captionY'), captionSize: $('captionSize'),
+  captionOpacity: $('captionOpacity'), captionColor: $('captionColor'), captionBgMode: $('captionBgMode'), captionBgOpacity: $('captionBgOpacity'), darken: $('darken'),
+  captionXValue: $('captionXValue'), captionYValue: $('captionYValue'), captionSizeValue: $('captionSizeValue'), captionOpacityValue: $('captionOpacityValue'), captionBgOpacityValue: $('captionBgOpacityValue'), darkenValue: $('darkenValue'),
 };
 const previewCtx = els.previewCanvas.getContext('2d');
 
@@ -74,20 +75,8 @@ function selectedSlide() {
   return state.slides[state.selectedIndex] || null;
 }
 
-function normalizeTextOverlayData(slide) {
-  if (!slide) return null;
-  slide.captionText = typeof slide.captionText === 'string' ? slide.captionText : '';
-  slide.captionPosition = ['top', 'center', 'bottom'].includes(slide.captionPosition) ? slide.captionPosition : 'bottom';
-  slide.captionSize = clamp(Number(slide.captionSize ?? 52), 24, 120);
-  slide.captionOpacity = clamp(Number(slide.captionOpacity ?? 1), 0, 1);
-  slide.captionColor = /^#[0-9a-fA-F]{6}$/.test(String(slide.captionColor || '')) ? slide.captionColor : '#ffffff';
-  slide.darken = clamp(Number(slide.darken ?? 0), 0, 0.75);
-  return slide;
-}
-
 function normalizeSlideFrameData(slide) {
   if (!slide) return null;
-  normalizeTextOverlayData(slide);
   const oldX = Number(slide.panX || 0);
   const oldY = Number(slide.panY || 0);
   if (!Number.isFinite(Number(slide.panStartX))) slide.panStartX = oldX;
@@ -96,6 +85,32 @@ function normalizeSlideFrameData(slide) {
   if (!Number.isFinite(Number(slide.panEndY))) slide.panEndY = oldY;
   slide.panX = Number(state.positionEditMode === 'end' ? slide.panEndX : slide.panStartX) || 0;
   slide.panY = Number(state.positionEditMode === 'end' ? slide.panEndY : slide.panStartY) || 0;
+  return slide;
+}
+
+function normalizeTextAndOverlayData(slide) {
+  if (!slide) return null;
+  if (typeof slide.captionText !== 'string') slide.captionText = '';
+  if (!Number.isFinite(Number(slide.captionX))) slide.captionX = 50;
+  if (!Number.isFinite(Number(slide.captionY))) slide.captionY = 82;
+  if (!Number.isFinite(Number(slide.captionSize))) slide.captionSize = 54;
+  if (!Number.isFinite(Number(slide.captionOpacity))) slide.captionOpacity = 100;
+  if (typeof slide.captionColor !== 'string' || !/^#[0-9a-f]{6}$/i.test(slide.captionColor)) slide.captionColor = '#ffffff';
+  if (!['none', 'dark', 'light'].includes(slide.captionBgMode)) slide.captionBgMode = 'none';
+  if (!Number.isFinite(Number(slide.captionBgOpacity))) slide.captionBgOpacity = 45;
+  if (!Number.isFinite(Number(slide.darken))) slide.darken = 0;
+  slide.captionX = clamp(slide.captionX, 0, 100);
+  slide.captionY = clamp(slide.captionY, 0, 100);
+  slide.captionSize = clamp(slide.captionSize, 18, 130);
+  slide.captionOpacity = clamp(slide.captionOpacity, 0, 100);
+  slide.captionBgOpacity = clamp(slide.captionBgOpacity, 0, 100);
+  slide.darken = clamp(slide.darken, 0, 80);
+  return slide;
+}
+
+function normalizeSlideData(slide) {
+  normalizeSlideFrameData(slide);
+  normalizeTextAndOverlayData(slide);
   return slide;
 }
 
@@ -510,10 +525,13 @@ async function addFiles(fileList) {
         duration: loaded.type === 'video' ? loaded.originalDuration : 4,
         backgroundMode: 'cover',
         captionText: '',
-        captionPosition: 'bottom',
-        captionSize: 52,
-        captionOpacity: 1,
+        captionX: 50,
+        captionY: 82,
+        captionSize: 54,
+        captionOpacity: 100,
         captionColor: '#ffffff',
+        captionBgMode: 'none',
+        captionBgOpacity: 45,
         darken: 0,
       });
     } catch (error) {
@@ -742,7 +760,7 @@ function selectSlide(index, setAnchor = false) {
   if (setAnchor) state.lastSelectionAnchor = safeIndex;
   state.previewTimeOffset = timeAtSlide(safeIndex);
   state.positionEditMode = 'start';
-  normalizeSlideFrameData(state.slides[safeIndex]);
+  normalizeSlideData(state.slides[safeIndex]);
   syncControls();
   renderAll();
   renderSelectionState();
@@ -761,12 +779,12 @@ function timeAtSlide(index) {
 function syncControls() {
   const slide = selectedSlide();
   const disabled = !slide;
-  [els.panX, els.panY, els.zoomStart, els.zoomEnd, els.duration, els.backgroundMode, els.resetSlideBtn, els.fitWholeBtn, els.coverBtn, els.softZoomBtn, els.aiSelectedBtn, els.positionStartBtn, els.positionEndBtn, els.captionText, els.captionPosition, els.captionSize, els.captionOpacity, els.captionColor, els.darken].forEach((el) => { if (el) el.disabled = disabled; });
+  [els.panX, els.panY, els.zoomStart, els.zoomEnd, els.duration, els.backgroundMode, els.resetSlideBtn, els.fitWholeBtn, els.coverBtn, els.softZoomBtn, els.aiSelectedBtn, els.positionStartBtn, els.positionEndBtn, els.captionText, els.captionX, els.captionY, els.captionSize, els.captionOpacity, els.captionColor, els.captionBgMode, els.captionBgOpacity, els.darken].forEach((el) => { if (el) el.disabled = disabled; });
   if (!slide) {
     updateControlLabels();
     return;
   }
-  normalizeSlideFrameData(slide);
+  normalizeSlideData(slide);
   const pan = activePan(slide);
   els.panX.value = pan.x;
   els.panY.value = pan.y;
@@ -776,11 +794,14 @@ function syncControls() {
   els.duration.value = Math.max(0.5, Math.min(Number(els.duration.max), slide.duration));
   els.backgroundMode.value = slide.backgroundMode || 'cover';
   if (els.captionText) els.captionText.value = slide.captionText || '';
-  if (els.captionPosition) els.captionPosition.value = slide.captionPosition || 'bottom';
-  if (els.captionSize) els.captionSize.value = Number(slide.captionSize ?? 52);
-  if (els.captionOpacity) els.captionOpacity.value = Number(slide.captionOpacity ?? 1);
+  if (els.captionX) els.captionX.value = slide.captionX;
+  if (els.captionY) els.captionY.value = slide.captionY;
+  if (els.captionSize) els.captionSize.value = slide.captionSize;
+  if (els.captionOpacity) els.captionOpacity.value = slide.captionOpacity;
   if (els.captionColor) els.captionColor.value = slide.captionColor || '#ffffff';
-  if (els.darken) els.darken.value = Number(slide.darken ?? 0);
+  if (els.captionBgMode) els.captionBgMode.value = slide.captionBgMode || 'none';
+  if (els.captionBgOpacity) els.captionBgOpacity.value = slide.captionBgOpacity;
+  if (els.darken) els.darken.value = slide.darken;
   els.videoHint.style.display = slide.type === 'video' ? 'block' : 'none';
   updateControlLabels();
 }
@@ -794,9 +815,13 @@ function updateControlLabels() {
   els.zoomStartValue.textContent = slide ? `${Number(slide.zoomStart).toFixed(2)}×` : '1.00×';
   els.zoomEndValue.textContent = slide ? `${Number(slide.zoomEnd).toFixed(2)}×` : '1.08×';
   els.durationValue.textContent = slide ? `${Number(slide.duration).toFixed(1)} сек.` : '—';
-  if (els.captionSizeValue) els.captionSizeValue.textContent = slide ? `${Math.round(Number(slide.captionSize ?? 52))}px` : '52px';
-  if (els.captionOpacityValue) els.captionOpacityValue.textContent = slide ? `${Math.round(Number(slide.captionOpacity ?? 1) * 100)}%` : '100%';
-  if (els.darkenValue) els.darkenValue.textContent = slide ? `${Math.round(Number(slide.darken ?? 0) * 100)}%` : '0%';
+  if (slide) normalizeTextAndOverlayData(slide);
+  if (els.captionXValue) els.captionXValue.textContent = slide ? `${Math.round(slide.captionX)}%` : '50%';
+  if (els.captionYValue) els.captionYValue.textContent = slide ? `${Math.round(slide.captionY)}%` : '82%';
+  if (els.captionSizeValue) els.captionSizeValue.textContent = slide ? `${Math.round(slide.captionSize)} px` : '54 px';
+  if (els.captionOpacityValue) els.captionOpacityValue.textContent = slide ? `${Math.round(slide.captionOpacity)}%` : '100%';
+  if (els.captionBgOpacityValue) els.captionBgOpacityValue.textContent = slide ? `${Math.round(slide.captionBgOpacity)}%` : '45%';
+  if (els.darkenValue) els.darkenValue.textContent = slide ? `${Math.round(slide.darken)}%` : '0%';
 }
 
 
@@ -822,7 +847,7 @@ function syncClipScrubber() {
   if (!els.clipScrub || !els.clipScrubLabel) return;
   const slide = selectedSlide();
   const disabled = !slide;
-  [els.clipScrub, els.clipStartBtn, els.clipMiddleBtn, els.clipEndBtn].forEach((el) => {
+  [els.clipScrub, els.clipStartBtn, els.clipEndBtn].forEach((el) => {
     if (el) el.disabled = disabled;
   });
   if (!slide) {
@@ -872,14 +897,20 @@ function applyControlChange(sourceId = '') {
     slide.backgroundMode = els.backgroundMode.value;
   } else if (sourceId === 'captionText') {
     slide.captionText = els.captionText.value;
-  } else if (sourceId === 'captionPosition') {
-    slide.captionPosition = els.captionPosition.value;
+  } else if (sourceId === 'captionX') {
+    slide.captionX = Number(els.captionX.value);
+  } else if (sourceId === 'captionY') {
+    slide.captionY = Number(els.captionY.value);
   } else if (sourceId === 'captionSize') {
     slide.captionSize = Number(els.captionSize.value);
   } else if (sourceId === 'captionOpacity') {
     slide.captionOpacity = Number(els.captionOpacity.value);
   } else if (sourceId === 'captionColor') {
-    slide.captionColor = els.captionColor.value || '#ffffff';
+    slide.captionColor = els.captionColor.value;
+  } else if (sourceId === 'captionBgMode') {
+    slide.captionBgMode = els.captionBgMode.value;
+  } else if (sourceId === 'captionBgOpacity') {
+    slide.captionBgOpacity = Number(els.captionBgOpacity.value);
   } else if (sourceId === 'darken') {
     slide.darken = Number(els.darken.value);
   } else {
@@ -889,12 +920,16 @@ function applyControlChange(sourceId = '') {
     slide.duration = Number(els.duration.value);
     slide.backgroundMode = els.backgroundMode.value;
     if (els.captionText) slide.captionText = els.captionText.value;
-    if (els.captionPosition) slide.captionPosition = els.captionPosition.value;
+    if (els.captionX) slide.captionX = Number(els.captionX.value);
+    if (els.captionY) slide.captionY = Number(els.captionY.value);
     if (els.captionSize) slide.captionSize = Number(els.captionSize.value);
     if (els.captionOpacity) slide.captionOpacity = Number(els.captionOpacity.value);
-    if (els.captionColor) slide.captionColor = els.captionColor.value || '#ffffff';
+    if (els.captionColor) slide.captionColor = els.captionColor.value;
+    if (els.captionBgMode) slide.captionBgMode = els.captionBgMode.value;
+    if (els.captionBgOpacity) slide.captionBgOpacity = Number(els.captionBgOpacity.value);
     if (els.darken) slide.darken = Number(els.darken.value);
   }
+  normalizeTextAndOverlayData(slide);
 
   updateControlLabels();
   renderStats();
@@ -1062,94 +1097,17 @@ function drawSlide(ctx, slide, rawProgress, width, height) {
     ctx.textAlign = 'center';
     ctx.fillText('Видео загружается…', width / 2, height / 2);
   }
-  drawSlideOverlays(ctx, slide, width, height);
+  drawTextAndDarkenOverlay(ctx, slide, width, height);
   ctx.restore();
 }
 
 function hexToRgb(hex) {
-  const value = String(hex || '#ffffff').replace('#', '');
-  const safe = /^[0-9a-fA-F]{6}$/.test(value) ? value : 'ffffff';
-  return {
-    r: parseInt(safe.slice(0, 2), 16),
-    g: parseInt(safe.slice(2, 4), 16),
-    b: parseInt(safe.slice(4, 6), 16),
-  };
+  const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(String(hex || '#ffffff'));
+  return match ? { r: parseInt(match[1], 16), g: parseInt(match[2], 16), b: parseInt(match[3], 16) } : { r: 255, g: 255, b: 255 };
 }
 
-function wrapCanvasText(ctx, text, maxWidth) {
-  const result = [];
-  String(text || '').split(/\r?\n/).forEach((paragraph) => {
-    const words = paragraph.trim().split(/\s+/).filter(Boolean);
-    if (!words.length) { result.push(''); return; }
-    let line = '';
-    words.forEach((word) => {
-      const candidate = line ? `${line} ${word}` : word;
-      if (ctx.measureText(candidate).width <= maxWidth || !line) line = candidate;
-      else { result.push(line); line = word; }
-    });
-    if (line) result.push(line);
-  });
-  return result.slice(0, 8);
-}
-
-function drawSlideOverlays(ctx, slide, width, height) {
-  normalizeTextOverlayData(slide);
-  const darken = clamp(Number(slide.darken || 0), 0, 0.75);
-  if (darken > 0.001) {
-    ctx.save();
-    ctx.fillStyle = `rgba(0,0,0,${darken})`;
-    ctx.fillRect(0, 0, width, height);
-    ctx.restore();
-  }
-
-  const text = String(slide.captionText || '').trim();
-  if (!text) return;
-
-  const opacity = clamp(Number(slide.captionOpacity ?? 1), 0, 1);
-  if (opacity <= 0.001) return;
-
-  const rgb = hexToRgb(slide.captionColor || '#ffffff');
-  const scale = Math.max(0.35, Math.min(width / 1920, height / 1080));
-  const fontSize = Math.max(14, Number(slide.captionSize || 52) * scale);
-  const marginX = Math.max(22, width * 0.075);
-  const marginY = Math.max(22, height * 0.09);
-  const lineHeight = fontSize * 1.18;
-
-  ctx.save();
-  ctx.font = `800 ${fontSize}px Inter, system-ui, -apple-system, Segoe UI, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  const lines = wrapCanvasText(ctx, text, width - marginX * 2);
-  const blockH = Math.max(lineHeight, lines.length * lineHeight);
-  let centerY;
-  if (slide.captionPosition === 'top') centerY = marginY + blockH / 2;
-  else if (slide.captionPosition === 'center') centerY = height / 2;
-  else centerY = height - marginY - blockH / 2;
-
-  const boxPadX = fontSize * 0.55;
-  const boxPadY = fontSize * 0.35;
-  const measuredWidth = Math.min(width - marginX * 2, Math.max(...lines.map((line) => ctx.measureText(line || ' ').width), 1));
-  const boxW = measuredWidth + boxPadX * 2;
-  const boxH = blockH + boxPadY * 2;
-  const boxX = (width - boxW) / 2;
-  const boxY = centerY - boxH / 2;
-  ctx.fillStyle = `rgba(0,0,0,${Math.min(0.42, 0.22 + darken * 0.32) * opacity})`;
-  roundRect(ctx, boxX, boxY, boxW, boxH, fontSize * 0.35);
-  ctx.fill();
-
-  ctx.shadowColor = `rgba(0,0,0,${0.72 * opacity})`;
-  ctx.shadowBlur = fontSize * 0.22;
-  ctx.shadowOffsetY = fontSize * 0.06;
-  ctx.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${opacity})`;
-  lines.forEach((line, i) => {
-    const y = centerY - ((lines.length - 1) * lineHeight) / 2 + i * lineHeight;
-    ctx.fillText(line, width / 2, y);
-  });
-  ctx.restore();
-}
-
-function roundRect(ctx, x, y, w, h, r) {
-  const radius = Math.max(0, Math.min(r, w / 2, h / 2));
+function roundedRect(ctx, x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
   ctx.moveTo(x + radius, y);
   ctx.arcTo(x + w, y, x + w, y + h, radius);
@@ -1157,6 +1115,89 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, radius);
   ctx.arcTo(x, y, x + w, y, radius);
   ctx.closePath();
+}
+
+function wrapCaptionLines(ctx, text, maxWidth) {
+  const lines = [];
+  const paragraphs = String(text || '').split(/\r?\n/);
+  paragraphs.forEach((paragraph) => {
+    const words = paragraph.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) {
+      lines.push('');
+      return;
+    }
+    let line = '';
+    words.forEach((word) => {
+      const test = line ? `${line} ${word}` : word;
+      if (ctx.measureText(test).width <= maxWidth || !line) line = test;
+      else {
+        lines.push(line);
+        line = word;
+      }
+    });
+    if (line) lines.push(line);
+  });
+  return lines.slice(0, 6);
+}
+
+function drawTextAndDarkenOverlay(ctx, slide, width, height) {
+  if (!slide) return;
+  normalizeTextAndOverlayData(slide);
+  const darkenAlpha = clamp(slide.darken, 0, 80) / 100;
+  if (darkenAlpha > 0) {
+    ctx.save();
+    ctx.fillStyle = `rgba(0,0,0,${darkenAlpha})`;
+    ctx.fillRect(0, 0, width, height);
+    ctx.restore();
+  }
+
+  const text = String(slide.captionText || '').trim();
+  if (!text) return;
+  const baseScale = Math.max(0.18, Math.min(width / 1920, height / 1080));
+  const fontPx = Math.max(10, Number(slide.captionSize || 54) * baseScale);
+  const lineHeight = fontPx * 1.18;
+  const maxWidth = width * 0.84;
+  ctx.save();
+  ctx.font = `800 ${fontPx}px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const lines = wrapCaptionLines(ctx, text, maxWidth);
+  const textWidth = Math.min(maxWidth, Math.max(...lines.map((line) => ctx.measureText(line).width), 1));
+  const textHeight = Math.max(lineHeight, lines.length * lineHeight);
+  const x = clamp(slide.captionX, 0, 100) / 100 * width;
+  const y = clamp(slide.captionY, 0, 100) / 100 * height;
+  const padX = fontPx * 0.52;
+  const padY = fontPx * 0.34;
+  const boxW = Math.min(width - fontPx, textWidth + padX * 2);
+  const boxH = textHeight + padY * 2;
+  const boxX = clamp(x - boxW / 2, fontPx * 0.25, width - boxW - fontPx * 0.25);
+  const boxY = clamp(y - boxH / 2, fontPx * 0.25, height - boxH - fontPx * 0.25);
+  const drawX = boxX + boxW / 2;
+  const firstY = boxY + padY + lineHeight / 2;
+
+  if (slide.captionBgMode !== 'none') {
+    const bgAlpha = clamp(slide.captionBgOpacity, 0, 100) / 100;
+    ctx.fillStyle = slide.captionBgMode === 'light'
+      ? `rgba(255,255,255,${bgAlpha})`
+      : `rgba(0,0,0,${bgAlpha})`;
+    roundedRect(ctx, boxX, boxY, boxW, boxH, Math.max(10, fontPx * 0.38));
+    ctx.fill();
+  }
+
+  const rgb = hexToRgb(slide.captionColor);
+  const alpha = clamp(slide.captionOpacity, 0, 100) / 100;
+  ctx.shadowColor = 'rgba(0,0,0,.52)';
+  ctx.shadowBlur = fontPx * 0.22;
+  ctx.shadowOffsetY = fontPx * 0.05;
+  ctx.lineWidth = Math.max(2, fontPx * 0.08);
+  ctx.strokeStyle = `rgba(0,0,0,${Math.min(0.75, alpha)})`;
+  ctx.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
+  lines.forEach((line, index) => {
+    const lineY = firstY + index * lineHeight;
+    ctx.strokeText(line, drawX, lineY);
+    ctx.fillText(line, drawX, lineY);
+  });
+  ctx.restore();
 }
 
 function drawBlurBackground(ctx, source, sourceWidth, sourceHeight, width, height) {
@@ -1360,10 +1401,13 @@ function makeProjectSnapshot() {
       originalDuration: slide.originalDuration,
       aiStatus: slide.aiStatus || '',
       captionText: slide.captionText || '',
-      captionPosition: slide.captionPosition || 'bottom',
-      captionSize: Number(slide.captionSize ?? 52),
-      captionOpacity: Number(slide.captionOpacity ?? 1),
+      captionX: Number(slide.captionX ?? 50),
+      captionY: Number(slide.captionY ?? 82),
+      captionSize: Number(slide.captionSize ?? 54),
+      captionOpacity: Number(slide.captionOpacity ?? 100),
       captionColor: slide.captionColor || '#ffffff',
+      captionBgMode: slide.captionBgMode || 'none',
+      captionBgOpacity: Number(slide.captionBgOpacity ?? 45),
       darken: Number(slide.darken ?? 0),
     })),
   };
@@ -1448,10 +1492,13 @@ async function loadProjectFromBrowser() {
           originalDuration: Number(item.originalDuration || loaded.originalDuration || 4),
           aiStatus: item.aiStatus || '',
           captionText: item.captionText || '',
-          captionPosition: item.captionPosition || 'bottom',
-          captionSize: Number(item.captionSize ?? 52),
-          captionOpacity: Number(item.captionOpacity ?? 1),
+          captionX: Number(item.captionX ?? 50),
+          captionY: Number(item.captionY ?? 82),
+          captionSize: Number(item.captionSize ?? 54),
+          captionOpacity: Number(item.captionOpacity ?? 100),
           captionColor: item.captionColor || '#ffffff',
+          captionBgMode: item.captionBgMode || 'none',
+          captionBgOpacity: Number(item.captionBgOpacity ?? 45),
           darken: Number(item.darken ?? 0),
         });
       } catch (error) {
@@ -1694,10 +1741,13 @@ async function exportMp4Package() {
         backgroundMode: slide.backgroundMode || 'cover',
         aiStatus: slide.aiStatus || '',
         captionText: slide.captionText || '',
-        captionPosition: slide.captionPosition || 'bottom',
-        captionSize: Number(slide.captionSize ?? 52),
-        captionOpacity: Number(slide.captionOpacity ?? 1),
+        captionX: Number(slide.captionX ?? 50),
+        captionY: Number(slide.captionY ?? 82),
+        captionSize: Number(slide.captionSize ?? 54),
+        captionOpacity: Number(slide.captionOpacity ?? 100),
         captionColor: slide.captionColor || '#ffffff',
+        captionBgMode: slide.captionBgMode || 'none',
+        captionBgOpacity: Number(slide.captionBgOpacity ?? 45),
         darken: Number(slide.darken ?? 0),
       });
     });
@@ -1969,7 +2019,7 @@ renderSelectionState();
   };
 });
 
-[els.panX, els.panY, els.zoomStart, els.zoomEnd, els.duration, els.backgroundMode, els.captionText, els.captionPosition, els.captionSize, els.captionOpacity, els.captionColor, els.darken].forEach((el) => {
+[els.panX, els.panY, els.zoomStart, els.zoomEnd, els.duration, els.backgroundMode, els.captionText, els.captionX, els.captionY, els.captionSize, els.captionOpacity, els.captionColor, els.captionBgMode, els.captionBgOpacity, els.darken].forEach((el) => {
   if (!el) return;
   el.addEventListener('input', () => applyControlChange(el.id));
   el.addEventListener('change', () => applyControlChange(el.id));
@@ -2136,7 +2186,6 @@ els.playBtn.addEventListener('click', () => state.playing ? stopPreview(false) :
 els.stopBtn.addEventListener('click', () => stopPreview(true));
 els.clipScrub?.addEventListener('input', () => setSelectedSlideProgress(Number(els.clipScrub.value) / 1000));
 els.clipStartBtn?.addEventListener('click', () => setSelectedSlideProgress(0));
-els.clipMiddleBtn?.addEventListener('click', () => setSelectedSlideProgress(0.5));
 els.clipEndBtn?.addEventListener('click', () => setSelectedSlideProgress(0.999));
 els.mp4VideoBtn?.addEventListener('click', () => exportVideo('mp4'));
 els.exportBtn.addEventListener('click', () => exportVideo('webm'));

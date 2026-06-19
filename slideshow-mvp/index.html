@@ -140,7 +140,6 @@
             <input id="clipScrub" type="range" min="0" max="1000" step="1" value="0" />
             <div class="clip-scrubber-actions">
               <button class="ghost" id="clipStartBtn" type="button">Начало</button>
-              <button class="ghost" id="clipMiddleBtn" type="button">Середина</button>
               <button class="ghost" id="clipEndBtn" type="button">Конец</button>
             </div>
           </div>
@@ -213,37 +212,47 @@
             </label>
           </div>
 
-          <div class="text-tools">
-            <div class="text-tools-head">
-              <strong>Надпись и затемнение</strong>
-              <span>Текст рисуется поверх выбранного кадра и попадает в MP4.</span>
+          <div class="caption-tools">
+            <div class="caption-tools-head">
+              <div>
+                <strong>Надпись и затемнение</strong>
+                <span>Для выбранного кадра. Позиция настраивается вручную.</span>
+              </div>
             </div>
-            <label class="caption-text-label">Текст на кадре
-              <textarea id="captionText" rows="3" placeholder="Например: С днём рождения, мама!"></textarea>
+            <label class="caption-text-field">Текст надписи
+              <textarea id="captionText" rows="2" placeholder="Например: С днём рождения, мама!"></textarea>
             </label>
-            <div class="controls-grid overlay-controls">
-              <label>Положение
-                <select id="captionPosition">
-                  <option value="bottom" selected>Снизу</option>
-                  <option value="center">По центру</option>
-                  <option value="top">Сверху</option>
+            <div class="controls-grid caption-controls">
+              <label>Позиция X <span id="captionXValue">50%</span>
+                <input id="captionX" type="range" min="0" max="100" step="1" value="50" />
+              </label>
+              <label>Позиция Y <span id="captionYValue">82%</span>
+                <input id="captionY" type="range" min="0" max="100" step="1" value="82" />
+              </label>
+              <label>Размер <span id="captionSizeValue">54 px</span>
+                <input id="captionSize" type="range" min="18" max="130" step="1" value="54" />
+              </label>
+              <label>Прозрачность текста <span id="captionOpacityValue">100%</span>
+                <input id="captionOpacity" type="range" min="0" max="100" step="1" value="100" />
+              </label>
+              <label>Цвет текста
+                <input id="captionColor" type="color" value="#ffffff" />
+              </label>
+              <label>Фон надписи
+                <select id="captionBgMode">
+                  <option value="none" selected>Без фона</option>
+                  <option value="dark">Тёмная подложка</option>
+                  <option value="light">Светлая подложка</option>
                 </select>
               </label>
-              <label>Размер <span id="captionSizeValue">52px</span>
-                <input id="captionSize" type="range" min="24" max="120" step="1" value="52" />
-              </label>
-              <label>Прозрачность <span id="captionOpacityValue">100%</span>
-                <input id="captionOpacity" type="range" min="0" max="1" step="0.01" value="1" />
-              </label>
-              <label>Цвет
-                <input id="captionColor" class="color-input" type="color" value="#ffffff" />
+              <label>Прозрачность фона <span id="captionBgOpacityValue">45%</span>
+                <input id="captionBgOpacity" type="range" min="0" max="100" step="1" value="45" />
               </label>
               <label>Затемнение фото <span id="darkenValue">0%</span>
-                <input id="darken" type="range" min="0" max="0.75" step="0.01" value="0" />
+                <input id="darken" type="range" min="0" max="80" step="1" value="0" />
               </label>
             </div>
           </div>
-
           <p class="hint" id="videoHint">Финальный экспорт — MP4-видео. Для плавности по умолчанию используется 24 fps и умеренный битрейт.</p>
         </section>
 
@@ -291,14 +300,14 @@ from pathlib import Path
 
 def ensure_pillow():
     try:
-        from PIL import Image, ImageFilter, ImageEnhance, ImageOps, ImageDraw, ImageFont
-        return Image, ImageFilter, ImageEnhance, ImageOps, ImageDraw, ImageFont
+        from PIL import Image, ImageFilter, ImageEnhance, ImageOps
+        return Image, ImageFilter, ImageEnhance, ImageOps
     except ImportError:
         print("Pillow is required for photo rendering. Trying to install it with pip...")
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", "Pillow"])
-            from PIL import Image, ImageFilter, ImageEnhance, ImageOps, ImageDraw, ImageFont
-            return Image, ImageFilter, ImageEnhance, ImageOps, ImageDraw, ImageFont
+            from PIL import Image, ImageFilter, ImageEnhance, ImageOps
+            return Image, ImageFilter, ImageEnhance, ImageOps
         except Exception as exc:
             print("Cannot install Pillow automatically.")
             print("Run manually: py -m pip install Pillow")
@@ -358,115 +367,8 @@ def make_blur_background(img, out_w, out_h, ImageFilter, ImageEnhance):
     return bg
 
 
-def hex_to_rgb(value):
-    value = str(value or "#ffffff").lstrip("#")
-    if len(value) != 6:
-        value = "ffffff"
-    try:
-        return tuple(int(value[i:i+2], 16) for i in (0, 2, 4))
-    except Exception:
-        return (255, 255, 255)
-
-
-def wrap_pil_text(draw, text, font, max_width):
-    lines = []
-    for paragraph in str(text or "").splitlines():
-        words = paragraph.strip().split()
-        if not words:
-            lines.append("")
-            continue
-        line = ""
-        for word in words:
-            candidate = f"{line} {word}".strip()
-            try:
-                width = draw.textlength(candidate, font=font)
-            except Exception:
-                width = len(candidate) * 12
-            if width <= max_width or not line:
-                line = candidate
-            else:
-                lines.append(line)
-                line = word
-        if line:
-            lines.append(line)
-    return lines[:8]
-
-
-def apply_frame_overlays(frame, slide, out_w, out_h, ImageDraw, ImageFont):
-    darken = max(0.0, min(0.75, parse_float(slide.get("darken"), 0.0)))
-    if darken > 0.001:
-        overlay = Image.new("RGB", frame.size, (0, 0, 0))
-        frame = Image.blend(frame, overlay, darken)
-
-    text = str(slide.get("captionText") or "").strip()
-    if not text:
-        return frame
-
-    opacity = max(0.0, min(1.0, parse_float(slide.get("captionOpacity"), 1.0)))
-    if opacity <= 0.001:
-        return frame
-
-    size = max(16, int(round(parse_float(slide.get("captionSize"), 52) * max(0.5, min(out_w / 1920, out_h / 1080)))))
-    try:
-        font = ImageFont.truetype("arial.ttf", size)
-    except Exception:
-        try:
-            font = ImageFont.truetype("DejaVuSans-Bold.ttf", size)
-        except Exception:
-            font = ImageFont.load_default()
-
-    rgba = frame.convert("RGBA")
-    layer = Image.new("RGBA", frame.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(layer)
-    margin_x = max(24, int(out_w * 0.075))
-    margin_y = max(24, int(out_h * 0.09))
-    lines = wrap_pil_text(draw, text, font, out_w - margin_x * 2)
-    if not lines:
-        return frame
-    line_h = int(size * 1.18)
-    block_h = max(line_h, len(lines) * line_h)
-    position = slide.get("captionPosition") or "bottom"
-    if position == "top":
-        center_y = margin_y + block_h / 2
-    elif position == "center":
-        center_y = out_h / 2
-    else:
-        center_y = out_h - margin_y - block_h / 2
-
-    widths = []
-    for line in lines:
-        try:
-            widths.append(draw.textlength(line or " ", font=font))
-        except Exception:
-            widths.append(len(line) * size * 0.5)
-    box_w = min(out_w - margin_x * 2, max(widths) if widths else 1) + int(size * 1.1)
-    box_h = block_h + int(size * 0.7)
-    box_x = int((out_w - box_w) / 2)
-    box_y = int(center_y - box_h / 2)
-    box_alpha = int(255 * min(0.42, 0.22 + darken * 0.32) * opacity)
-    try:
-        draw.rounded_rectangle([box_x, box_y, box_x + int(box_w), box_y + int(box_h)], radius=max(8, int(size * 0.35)), fill=(0, 0, 0, box_alpha))
-    except Exception:
-        draw.rectangle([box_x, box_y, box_x + int(box_w), box_y + int(box_h)], fill=(0, 0, 0, box_alpha))
-
-    color = hex_to_rgb(slide.get("captionColor") or "#ffffff")
-    fill = (*color, int(255 * opacity))
-    shadow = (0, 0, 0, int(180 * opacity))
-    for i, line in enumerate(lines):
-        y = int(center_y - ((len(lines) - 1) * line_h) / 2 + i * line_h - size / 2)
-        try:
-            tw = draw.textlength(line, font=font)
-        except Exception:
-            tw = len(line) * size * 0.5
-        x = int((out_w - tw) / 2)
-        draw.text((x + 2, y + 3), line, font=font, fill=shadow)
-        draw.text((x, y), line, font=font, fill=fill)
-
-    return Image.alpha_composite(rgba, layer).convert("RGB")
-
-
 def draw_image_frame(img, slide, frame_index, frame_count, out_w, out_h, pil_modules):
-    Image, ImageFilter, ImageEnhance, _ImageOps, ImageDraw, ImageFont = pil_modules
+    Image, ImageFilter, ImageEnhance, _ImageOps = pil_modules
     mode = slide.get("backgroundMode") or "cover"
     if mode == "containBlur":
         frame = make_blur_background(img, out_w, out_h, ImageFilter, ImageEnhance)
@@ -497,12 +399,11 @@ def draw_image_frame(img, slide, frame_index, frame_count, out_w, out_h, pil_mod
     dx = int(round((out_w - draw_w) / 2 + (pan_x / 100.0) * free_x))
     dy = int(round((out_h - draw_h) / 2 + (pan_y / 100.0) * free_y))
     frame.paste(resized, (dx, dy))
-    frame = apply_frame_overlays(frame, slide, out_w, out_h, ImageDraw, ImageFont)
     return frame
 
 
 def render_image_segment(ffmpeg, slide, index, assets_dir, temp_dir, out_w, out_h, fps, pil_modules):
-    Image, _ImageFilter, _ImageEnhance, ImageOps, _ImageDraw, _ImageFont = pil_modules
+    Image, _ImageFilter, _ImageEnhance, ImageOps = pil_modules
     src = assets_dir / slide["asset"]
     duration = max(0.1, parse_float(slide.get("duration"), 4.0))
     frames = max(1, int(round(duration * fps)))
