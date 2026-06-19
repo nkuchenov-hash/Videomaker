@@ -36,12 +36,14 @@ const els = {
   formatSelect: $('formatSelect'), customSizeBox: $('customSizeBox'), customWidth: $('customWidth'), customHeight: $('customHeight'), fpsSelect: $('fpsSelect'), exportPreset: $('exportPreset'), exportBtn: $('exportBtn'), mp4VideoBtn: $('mp4VideoBtn'), mp4PackageBtn: $('mp4PackageBtn'),
   exportProgress: $('exportProgress'), exportStatusText: $('exportStatusText'), audioPreview: $('audioPreview'),
   selectedCount: $('selectedCount'), selectAllBtn: $('selectAllBtn'), deleteSelectedBtn: $('deleteSelectedBtn'),
-  saveProjectBtn: $('saveProjectBtn'), loadProjectBtn: $('loadProjectBtn'), deleteSavedProjectBtn: $('deleteSavedProjectBtn'), exportProjectBtn: $('exportProjectBtn'), importProjectBtn: $('importProjectBtn'), projectFileInput: $('projectFileInput'), projectStatus: $('projectStatus'),
+  saveProjectBtn: $('saveProjectBtn'), loadProjectBtn: $('loadProjectBtn'), deleteSavedProjectBtn: $('deleteSavedProjectBtn'), projectStatus: $('projectStatus'),
   clipScrubberBox: $('clipScrubberBox'), clipScrub: $('clipScrub'), clipScrubLabel: $('clipScrubLabel'),
   clipStartBtn: $('clipStartBtn'), clipMiddleBtn: $('clipMiddleBtn'), clipEndBtn: $('clipEndBtn'),
   positionStartBtn: $('positionStartBtn'), positionEndBtn: $('positionEndBtn'), previewEditHint: $('previewEditHint'),
   aiSelectedBtn: $('aiSelectedBtn'), aiAllBtn: $('aiAllBtn'), verticalBgBtn: $('verticalBgBtn'),
   aiAutoForNew: $('aiAutoForNew'), aiStatus: $('aiStatus'),
+  captionText: $('captionText'), captionPosition: $('captionPosition'), captionSize: $('captionSize'), captionSizeValue: $('captionSizeValue'),
+  captionOpacity: $('captionOpacity'), captionOpacityValue: $('captionOpacityValue'), captionColor: $('captionColor'), darken: $('darken'), darkenValue: $('darkenValue'),
 };
 const previewCtx = els.previewCanvas.getContext('2d');
 
@@ -72,8 +74,20 @@ function selectedSlide() {
   return state.slides[state.selectedIndex] || null;
 }
 
+function normalizeTextOverlayData(slide) {
+  if (!slide) return null;
+  slide.captionText = typeof slide.captionText === 'string' ? slide.captionText : '';
+  slide.captionPosition = ['top', 'center', 'bottom'].includes(slide.captionPosition) ? slide.captionPosition : 'bottom';
+  slide.captionSize = clamp(Number(slide.captionSize ?? 52), 24, 120);
+  slide.captionOpacity = clamp(Number(slide.captionOpacity ?? 1), 0, 1);
+  slide.captionColor = /^#[0-9a-fA-F]{6}$/.test(String(slide.captionColor || '')) ? slide.captionColor : '#ffffff';
+  slide.darken = clamp(Number(slide.darken ?? 0), 0, 0.75);
+  return slide;
+}
+
 function normalizeSlideFrameData(slide) {
   if (!slide) return null;
+  normalizeTextOverlayData(slide);
   const oldX = Number(slide.panX || 0);
   const oldY = Number(slide.panY || 0);
   if (!Number.isFinite(Number(slide.panStartX))) slide.panStartX = oldX;
@@ -495,6 +509,12 @@ async function addFiles(fileList) {
         zoomEnd: loaded.type === 'video' ? 1 : 1.08,
         duration: loaded.type === 'video' ? loaded.originalDuration : 4,
         backgroundMode: 'cover',
+        captionText: '',
+        captionPosition: 'bottom',
+        captionSize: 52,
+        captionOpacity: 1,
+        captionColor: '#ffffff',
+        darken: 0,
       });
     } catch (error) {
       console.warn('Cannot load media', file.name, error);
@@ -741,7 +761,7 @@ function timeAtSlide(index) {
 function syncControls() {
   const slide = selectedSlide();
   const disabled = !slide;
-  [els.panX, els.panY, els.zoomStart, els.zoomEnd, els.duration, els.backgroundMode, els.resetSlideBtn, els.fitWholeBtn, els.coverBtn, els.softZoomBtn, els.aiSelectedBtn, els.positionStartBtn, els.positionEndBtn].forEach((el) => { if (el) el.disabled = disabled; });
+  [els.panX, els.panY, els.zoomStart, els.zoomEnd, els.duration, els.backgroundMode, els.resetSlideBtn, els.fitWholeBtn, els.coverBtn, els.softZoomBtn, els.aiSelectedBtn, els.positionStartBtn, els.positionEndBtn, els.captionText, els.captionPosition, els.captionSize, els.captionOpacity, els.captionColor, els.darken].forEach((el) => { if (el) el.disabled = disabled; });
   if (!slide) {
     updateControlLabels();
     return;
@@ -755,6 +775,12 @@ function syncControls() {
   els.duration.max = Math.max(60, Math.ceil(slide.duration * 2), Math.ceil((slide.originalDuration || 4) * 2));
   els.duration.value = Math.max(0.5, Math.min(Number(els.duration.max), slide.duration));
   els.backgroundMode.value = slide.backgroundMode || 'cover';
+  if (els.captionText) els.captionText.value = slide.captionText || '';
+  if (els.captionPosition) els.captionPosition.value = slide.captionPosition || 'bottom';
+  if (els.captionSize) els.captionSize.value = Number(slide.captionSize ?? 52);
+  if (els.captionOpacity) els.captionOpacity.value = Number(slide.captionOpacity ?? 1);
+  if (els.captionColor) els.captionColor.value = slide.captionColor || '#ffffff';
+  if (els.darken) els.darken.value = Number(slide.darken ?? 0);
   els.videoHint.style.display = slide.type === 'video' ? 'block' : 'none';
   updateControlLabels();
 }
@@ -768,6 +794,9 @@ function updateControlLabels() {
   els.zoomStartValue.textContent = slide ? `${Number(slide.zoomStart).toFixed(2)}×` : '1.00×';
   els.zoomEndValue.textContent = slide ? `${Number(slide.zoomEnd).toFixed(2)}×` : '1.08×';
   els.durationValue.textContent = slide ? `${Number(slide.duration).toFixed(1)} сек.` : '—';
+  if (els.captionSizeValue) els.captionSizeValue.textContent = slide ? `${Math.round(Number(slide.captionSize ?? 52))}px` : '52px';
+  if (els.captionOpacityValue) els.captionOpacityValue.textContent = slide ? `${Math.round(Number(slide.captionOpacity ?? 1) * 100)}%` : '100%';
+  if (els.darkenValue) els.darkenValue.textContent = slide ? `${Math.round(Number(slide.darken ?? 0) * 100)}%` : '0%';
 }
 
 
@@ -841,12 +870,30 @@ function applyControlChange(sourceId = '') {
     slide.duration = Number(els.duration.value);
   } else if (sourceId === 'backgroundMode') {
     slide.backgroundMode = els.backgroundMode.value;
+  } else if (sourceId === 'captionText') {
+    slide.captionText = els.captionText.value;
+  } else if (sourceId === 'captionPosition') {
+    slide.captionPosition = els.captionPosition.value;
+  } else if (sourceId === 'captionSize') {
+    slide.captionSize = Number(els.captionSize.value);
+  } else if (sourceId === 'captionOpacity') {
+    slide.captionOpacity = Number(els.captionOpacity.value);
+  } else if (sourceId === 'captionColor') {
+    slide.captionColor = els.captionColor.value || '#ffffff';
+  } else if (sourceId === 'darken') {
+    slide.darken = Number(els.darken.value);
   } else {
     setActivePan(slide, Number(els.panX.value), Number(els.panY.value));
     slide.zoomStart = Number(els.zoomStart.value);
     slide.zoomEnd = Number(els.zoomEnd.value);
     slide.duration = Number(els.duration.value);
     slide.backgroundMode = els.backgroundMode.value;
+    if (els.captionText) slide.captionText = els.captionText.value;
+    if (els.captionPosition) slide.captionPosition = els.captionPosition.value;
+    if (els.captionSize) slide.captionSize = Number(els.captionSize.value);
+    if (els.captionOpacity) slide.captionOpacity = Number(els.captionOpacity.value);
+    if (els.captionColor) slide.captionColor = els.captionColor.value || '#ffffff';
+    if (els.darken) slide.darken = Number(els.darken.value);
   }
 
   updateControlLabels();
@@ -1015,7 +1062,101 @@ function drawSlide(ctx, slide, rawProgress, width, height) {
     ctx.textAlign = 'center';
     ctx.fillText('Видео загружается…', width / 2, height / 2);
   }
+  drawSlideOverlays(ctx, slide, width, height);
   ctx.restore();
+}
+
+function hexToRgb(hex) {
+  const value = String(hex || '#ffffff').replace('#', '');
+  const safe = /^[0-9a-fA-F]{6}$/.test(value) ? value : 'ffffff';
+  return {
+    r: parseInt(safe.slice(0, 2), 16),
+    g: parseInt(safe.slice(2, 4), 16),
+    b: parseInt(safe.slice(4, 6), 16),
+  };
+}
+
+function wrapCanvasText(ctx, text, maxWidth) {
+  const result = [];
+  String(text || '').split(/\r?\n/).forEach((paragraph) => {
+    const words = paragraph.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) { result.push(''); return; }
+    let line = '';
+    words.forEach((word) => {
+      const candidate = line ? `${line} ${word}` : word;
+      if (ctx.measureText(candidate).width <= maxWidth || !line) line = candidate;
+      else { result.push(line); line = word; }
+    });
+    if (line) result.push(line);
+  });
+  return result.slice(0, 8);
+}
+
+function drawSlideOverlays(ctx, slide, width, height) {
+  normalizeTextOverlayData(slide);
+  const darken = clamp(Number(slide.darken || 0), 0, 0.75);
+  if (darken > 0.001) {
+    ctx.save();
+    ctx.fillStyle = `rgba(0,0,0,${darken})`;
+    ctx.fillRect(0, 0, width, height);
+    ctx.restore();
+  }
+
+  const text = String(slide.captionText || '').trim();
+  if (!text) return;
+
+  const opacity = clamp(Number(slide.captionOpacity ?? 1), 0, 1);
+  if (opacity <= 0.001) return;
+
+  const rgb = hexToRgb(slide.captionColor || '#ffffff');
+  const scale = Math.max(0.35, Math.min(width / 1920, height / 1080));
+  const fontSize = Math.max(14, Number(slide.captionSize || 52) * scale);
+  const marginX = Math.max(22, width * 0.075);
+  const marginY = Math.max(22, height * 0.09);
+  const lineHeight = fontSize * 1.18;
+
+  ctx.save();
+  ctx.font = `800 ${fontSize}px Inter, system-ui, -apple-system, Segoe UI, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const lines = wrapCanvasText(ctx, text, width - marginX * 2);
+  const blockH = Math.max(lineHeight, lines.length * lineHeight);
+  let centerY;
+  if (slide.captionPosition === 'top') centerY = marginY + blockH / 2;
+  else if (slide.captionPosition === 'center') centerY = height / 2;
+  else centerY = height - marginY - blockH / 2;
+
+  const boxPadX = fontSize * 0.55;
+  const boxPadY = fontSize * 0.35;
+  const measuredWidth = Math.min(width - marginX * 2, Math.max(...lines.map((line) => ctx.measureText(line || ' ').width), 1));
+  const boxW = measuredWidth + boxPadX * 2;
+  const boxH = blockH + boxPadY * 2;
+  const boxX = (width - boxW) / 2;
+  const boxY = centerY - boxH / 2;
+  ctx.fillStyle = `rgba(0,0,0,${Math.min(0.42, 0.22 + darken * 0.32) * opacity})`;
+  roundRect(ctx, boxX, boxY, boxW, boxH, fontSize * 0.35);
+  ctx.fill();
+
+  ctx.shadowColor = `rgba(0,0,0,${0.72 * opacity})`;
+  ctx.shadowBlur = fontSize * 0.22;
+  ctx.shadowOffsetY = fontSize * 0.06;
+  ctx.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${opacity})`;
+  lines.forEach((line, i) => {
+    const y = centerY - ((lines.length - 1) * lineHeight) / 2 + i * lineHeight;
+    ctx.fillText(line, width / 2, y);
+  });
+  ctx.restore();
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  const radius = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + w, y, x + w, y + h, radius);
+  ctx.arcTo(x + w, y + h, x, y + h, radius);
+  ctx.arcTo(x, y + h, x, y, radius);
+  ctx.arcTo(x, y, x + w, y, radius);
+  ctx.closePath();
 }
 
 function drawBlurBackground(ctx, source, sourceWidth, sourceHeight, width, height) {
@@ -1193,7 +1334,6 @@ function makeProjectSnapshot() {
       customWidth: Number(els.customWidth.value) || 1920,
       customHeight: Number(els.customHeight.value) || 1080,
       fps: els.fpsSelect.value,
-      exportPreset: els.exportPreset?.value || 'smooth1080',
     },
     audio: state.audioFile ? {
       file: state.audioFile,
@@ -1219,6 +1359,12 @@ function makeProjectSnapshot() {
       backgroundMode: slide.backgroundMode,
       originalDuration: slide.originalDuration,
       aiStatus: slide.aiStatus || '',
+      captionText: slide.captionText || '',
+      captionPosition: slide.captionPosition || 'bottom',
+      captionSize: Number(slide.captionSize ?? 52),
+      captionOpacity: Number(slide.captionOpacity ?? 1),
+      captionColor: slide.captionColor || '#ffffff',
+      darken: Number(slide.darken ?? 0),
     })),
   };
 }
@@ -1261,8 +1407,7 @@ async function loadProjectFromBrowser() {
       els.formatSelect.value = project.settings.format || '1920x1080';
       els.customWidth.value = project.settings.customWidth || 1920;
       els.customHeight.value = project.settings.customHeight || 1080;
-      els.fpsSelect.value = project.settings.fps || '24';
-      if (els.exportPreset) els.exportPreset.value = project.settings.exportPreset || 'smooth1080';
+      els.fpsSelect.value = project.settings.fps || '30';
     }
 
     if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
@@ -1302,6 +1447,12 @@ async function loadProjectFromBrowser() {
           backgroundMode: item.backgroundMode || 'cover',
           originalDuration: Number(item.originalDuration || loaded.originalDuration || 4),
           aiStatus: item.aiStatus || '',
+          captionText: item.captionText || '',
+          captionPosition: item.captionPosition || 'bottom',
+          captionSize: Number(item.captionSize ?? 52),
+          captionOpacity: Number(item.captionOpacity ?? 1),
+          captionColor: item.captionColor || '#ffffff',
+          darken: Number(item.darken ?? 0),
         });
       } catch (error) {
         console.warn('Cannot restore media', item.name, error);
@@ -1325,263 +1476,6 @@ async function deleteSavedProject() {
   } catch (error) {
     console.error(error);
     setProjectStatus('Не получилось удалить сохранение.');
-  }
-}
-
-function mimeFromName(name, fallbackType = '') {
-  const lower = String(name || '').toLowerCase();
-  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
-  if (lower.endsWith('.png')) return 'image/png';
-  if (lower.endsWith('.webp')) return 'image/webp';
-  if (lower.endsWith('.gif')) return 'image/gif';
-  if (lower.endsWith('.mp4') || lower.endsWith('.m4v')) return 'video/mp4';
-  if (lower.endsWith('.mov')) return 'video/quicktime';
-  if (lower.endsWith('.webm')) return 'video/webm';
-  if (lower.endsWith('.mp3')) return 'audio/mpeg';
-  if (lower.endsWith('.m4a')) return 'audio/mp4';
-  if (lower.endsWith('.wav')) return 'audio/wav';
-  if (lower.endsWith('.ogg')) return 'audio/ogg';
-  return fallbackType || 'application/octet-stream';
-}
-
-function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
-}
-
-function setImportedSettings(settings = {}) {
-  if (!settings) return;
-  const width = Number(settings.width || settings.customWidth || 1920);
-  const height = Number(settings.height || settings.customHeight || 1080);
-  const format = settings.format;
-  const optionValues = [...els.formatSelect.options].map((option) => option.value);
-  if (format && optionValues.includes(format)) {
-    els.formatSelect.value = format;
-  } else {
-    const sizeValue = `${width}x${height}`;
-    els.formatSelect.value = optionValues.includes(sizeValue) ? sizeValue : 'custom';
-  }
-  els.customWidth.value = width;
-  els.customHeight.value = height;
-  els.fpsSelect.value = String(settings.fps || 24);
-  if (els.exportPreset) els.exportPreset.value = settings.exportPreset || 'smooth1080';
-}
-
-function resetCurrentProjectForImport() {
-  stopPreview(true);
-  state.slides.forEach(revokeSlideUrls);
-  state.slides = [];
-  state.selectedIds.clear();
-  state.lastSelectionAnchor = -1;
-  state.selectedIndex = -1;
-  state.previewTimeOffset = 0;
-  if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
-  state.audioFile = null;
-  state.audioUrl = null;
-  state.audioDuration = 0;
-  els.audioPreview.removeAttribute('src');
-}
-
-async function loadAudioFileIntoProject(file, fallbackDuration = 0) {
-  state.audioFile = file;
-  if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
-  state.audioUrl = URL.createObjectURL(file);
-  els.audioPreview.src = state.audioUrl;
-  try {
-    await waitForEvent(els.audioPreview, 'loadedmetadata', 8000);
-    state.audioDuration = els.audioPreview.duration || fallbackDuration || 0;
-  } catch (_) {
-    state.audioDuration = fallbackDuration || 0;
-  }
-}
-
-async function addImportedSlide(item, file) {
-  const loaded = item.type === 'video' ? await loadVideoFromFile(file) : await loadImageFromFile(file);
-  state.slides.push({
-    id: item.id || uid(),
-    file,
-    name: item.name || file?.name || 'media',
-    ...loaded,
-    panX: Number(item.panX || item.panStartX || 0),
-    panY: Number(item.panY || item.panStartY || 0),
-    panStartX: Number(item.panStartX ?? item.panX ?? 0),
-    panStartY: Number(item.panStartY ?? item.panY ?? 0),
-    panEndX: Number(item.panEndX ?? item.panX ?? 0),
-    panEndY: Number(item.panEndY ?? item.panY ?? 0),
-    zoomStart: Number(item.zoomStart ?? 1),
-    zoomEnd: Number(item.zoomEnd ?? (loaded.type === 'video' ? 1 : 1.08)),
-    duration: Number(item.duration || loaded.originalDuration || 4),
-    backgroundMode: item.backgroundMode || 'cover',
-    originalDuration: Number(item.originalDuration || loaded.originalDuration || 4),
-    aiStatus: item.aiStatus || '',
-  });
-}
-
-async function exportPortableProject() {
-  if (!state.slides.length && !state.audioFile) {
-    setProjectStatus('Сначала добавь фото/видео или музыку.');
-    return;
-  }
-  if (!window.JSZip) {
-    setProjectStatus('Не загрузилась библиотека ZIP. Проверь интернет и обнови страницу Ctrl+F5.');
-    return;
-  }
-  try {
-    if (els.exportProjectBtn) els.exportProjectBtn.disabled = true;
-    setProjectStatus('Собираю переносимый проект…');
-    const zip = new JSZip();
-    const assets = zip.folder('assets');
-    const usedNames = new Set();
-    const [width, height] = getOutputSize();
-
-    const slides = state.slides.map((slide, index) => {
-      const assetName = uniqueAssetName(usedNames, index, slide.file, slide.type);
-      assets.file(assetName, slide.file);
-      return {
-        index,
-        id: slide.id,
-        type: slide.type,
-        name: slide.name,
-        asset: assetName,
-        fileType: slide.file?.type || mimeFromName(slide.name, slide.type === 'video' ? 'video/mp4' : 'image/jpeg'),
-        size: slide.file?.size || 0,
-        lastModified: slide.file?.lastModified || 0,
-        width: slide.width,
-        height: slide.height,
-        duration: Number(slide.duration || slide.originalDuration || 4),
-        originalDuration: Number(slide.originalDuration || slide.duration || 4),
-        panX: Number(slide.panX || 0),
-        panY: Number(slide.panY || 0),
-        panStartX: Number(slide.panStartX ?? slide.panX ?? 0),
-        panStartY: Number(slide.panStartY ?? slide.panY ?? 0),
-        panEndX: Number(slide.panEndX ?? slide.panX ?? 0),
-        panEndY: Number(slide.panEndY ?? slide.panY ?? 0),
-        zoomStart: Number(slide.zoomStart ?? 1),
-        zoomEnd: Number(slide.zoomEnd ?? (slide.type === 'video' ? 1 : 1.08)),
-        backgroundMode: slide.backgroundMode || 'cover',
-        aiStatus: slide.aiStatus || '',
-      };
-    });
-
-    let audio = null;
-    if (state.audioFile) {
-      const audioName = uniqueAssetName(usedNames, state.slides.length, state.audioFile, 'audio');
-      assets.file(audioName, state.audioFile);
-      audio = {
-        name: state.audioFile.name,
-        asset: audioName,
-        type: state.audioFile.type || mimeFromName(state.audioFile.name, 'audio/mpeg'),
-        size: state.audioFile.size || 0,
-        lastModified: state.audioFile.lastModified || 0,
-        duration: Number(state.audioDuration || 0),
-      };
-    }
-
-    const project = {
-      version: 5,
-      kind: 'portable-project',
-      app: 'Family Slideshow Maker',
-      exportedAt: new Date().toISOString(),
-      settings: {
-        width,
-        height,
-        format: els.formatSelect.value,
-        customWidth: Number(els.customWidth.value) || width,
-        customHeight: Number(els.customHeight.value) || height,
-        fps: els.fpsSelect.value,
-        exportPreset: els.exportPreset?.value || 'smooth1080',
-      },
-      audio,
-      slides,
-    };
-
-    zip.file('project.json', JSON.stringify(project, null, 2));
-    zip.file('README_PROJECT.txt', 'Family Slideshow Maker portable project. Open this ZIP through the app button: Открыть проект-файл. Media files are included in assets/. Nothing is uploaded to a server.');
-
-    const blob = await zip.generateAsync(
-      { type: 'blob', compression: 'STORE' },
-      (meta) => setProjectStatus(`Упаковка проекта: ${Math.round(meta.percent)}%`)
-    );
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    downloadBlob(blob, `slideshow-project-${stamp}.zip`);
-    setProjectStatus('Переносимый проект скачан. Его можно открыть на другом компьютере.');
-  } catch (error) {
-    console.error(error);
-    setProjectStatus('Не удалось скачать проект. Возможно, браузеру не хватает памяти для больших видео.');
-  } finally {
-    if (els.exportProjectBtn) els.exportProjectBtn.disabled = false;
-  }
-}
-
-async function importPortableProject(file) {
-  if (!file) return;
-  if (!window.JSZip) {
-    setProjectStatus('Не загрузилась библиотека ZIP. Проверь интернет и обнови страницу Ctrl+F5.');
-    return;
-  }
-  try {
-    setProjectStatus('Открываю проект-файл…');
-    const zip = await JSZip.loadAsync(file);
-    const projectEntry = zip.file('project.json');
-    if (!projectEntry) {
-      setProjectStatus('В ZIP нет project.json. Это не проект слайдшоу.');
-      return;
-    }
-    const project = JSON.parse(await projectEntry.async('string'));
-    resetCurrentProjectForImport();
-    setImportedSettings(project.settings || {});
-
-    if (project.audio && project.audio.asset) {
-      const entry = zip.file(`assets/${project.audio.asset}`) || zip.file(project.audio.asset);
-      if (entry) {
-        const blob = await entry.async('blob');
-        const audioFile = new File([blob], project.audio.name || project.audio.asset, {
-          type: project.audio.type || mimeFromName(project.audio.name || project.audio.asset, 'audio/mpeg'),
-          lastModified: project.audio.lastModified || Date.now(),
-        });
-        await loadAudioFileIntoProject(audioFile, Number(project.audio.duration || 0));
-      }
-    }
-
-    let restored = 0;
-    for (const item of project.slides || []) {
-      const asset = item.asset;
-      const entry = asset ? (zip.file(`assets/${asset}`) || zip.file(asset)) : null;
-      if (!entry) {
-        console.warn('Missing asset', item.name || asset);
-        continue;
-      }
-      try {
-        const blob = await entry.async('blob');
-        const mediaFile = new File([blob], item.name || asset, {
-          type: item.fileType || mimeFromName(item.name || asset, item.type === 'video' ? 'video/mp4' : 'image/jpeg'),
-          lastModified: item.lastModified || Date.now(),
-        });
-        await addImportedSlide(item, mediaFile);
-        restored += 1;
-        setProjectStatus(`Открываю проект: ${restored}/${(project.slides || []).length}`);
-      } catch (error) {
-        console.warn('Cannot import slide', item.name || asset, error);
-      }
-    }
-
-    state.selectedIndex = state.slides.length ? 0 : -1;
-    state.previewTimeOffset = 0;
-    updatePreviewCanvasSize();
-    renderAll();
-    renderSelectionState();
-    setProjectStatus(`Проект-файл открыт. Кадров: ${state.slides.length}.`);
-  } catch (error) {
-    console.error(error);
-    setProjectStatus('Не получилось открыть проект-файл. Возможно, ZIP повреждён или слишком большой для браузера.');
-  } finally {
-    if (els.projectFileInput) els.projectFileInput.value = '';
   }
 }
 
@@ -1799,6 +1693,12 @@ async function exportMp4Package() {
         zoomEnd: Number(slide.zoomEnd ?? (slide.type === 'video' ? 1 : 1.08)),
         backgroundMode: slide.backgroundMode || 'cover',
         aiStatus: slide.aiStatus || '',
+        captionText: slide.captionText || '',
+        captionPosition: slide.captionPosition || 'bottom',
+        captionSize: Number(slide.captionSize ?? 52),
+        captionOpacity: Number(slide.captionOpacity ?? 1),
+        captionColor: slide.captionColor || '#ffffff',
+        darken: Number(slide.darken ?? 0),
       });
     });
 
@@ -2069,7 +1969,8 @@ renderSelectionState();
   };
 });
 
-[els.panX, els.panY, els.zoomStart, els.zoomEnd, els.duration, els.backgroundMode].forEach((el) => {
+[els.panX, els.panY, els.zoomStart, els.zoomEnd, els.duration, els.backgroundMode, els.captionText, els.captionPosition, els.captionSize, els.captionOpacity, els.captionColor, els.darken].forEach((el) => {
+  if (!el) return;
   el.addEventListener('input', () => applyControlChange(el.id));
   el.addEventListener('change', () => applyControlChange(el.id));
 });
@@ -2244,9 +2145,6 @@ els.selectAllBtn?.addEventListener('click', selectAllOrNone);
 els.deleteSelectedBtn?.addEventListener('click', deleteSelectedSlides);
 els.saveProjectBtn?.addEventListener('click', saveProjectToBrowser);
 els.loadProjectBtn?.addEventListener('click', loadProjectFromBrowser);
-els.exportProjectBtn?.addEventListener('click', exportPortableProject);
-els.importProjectBtn?.addEventListener('click', () => els.projectFileInput?.click());
-els.projectFileInput?.addEventListener('change', (event) => importPortableProject(event.target.files?.[0]));
 els.deleteSavedProjectBtn?.addEventListener('click', deleteSavedProject);
 els.formatSelect.addEventListener('change', updatePreviewCanvasSize);
 els.customWidth.addEventListener('input', updatePreviewCanvasSize);
